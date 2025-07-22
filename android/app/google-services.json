@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "180256426004",
+    "project_id": "city-pulse-e9375",
+    "storage_bucket": "city-pulse-e9375.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:180256426004:android:dff480165640b249977f01",
+        "android_client_info": {
+          "package_name": "com.bengaluru.citypulse.bengaluru_city_pulse"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "180256426004-3n9i1mmiapgfl80co4h88skci4pq1mnn.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.bengaluru.citypulse.bengaluru_city_pulse",
+            "certificate_hash": "82c6a74787f192a29dd169caead1179e13748a33"
+          }
+        },
+        {
+          "client_id": "180256426004-6r205bfcorj7bo836fas9b9bdmbkf7kg.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB0Fiv74TFQIVI7ltLsDkeea7NuybHPY3Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "180256426004-6r205bfcorj7bo836fas9b9bdmbkf7kg.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
