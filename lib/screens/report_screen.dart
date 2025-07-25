@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import '../services/mock_data_service.dart';
-import '../services/location_service.dart';
+import '../services/gemini_service.dart';
 import '../themes/app_theme.dart';
 
 class ReportScreen extends ConsumerStatefulWidget {
@@ -42,7 +41,7 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Report Event'),
@@ -133,20 +132,23 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: _isSubmitting ? null : _submitReport,
-                  child: _isSubmitting
-                      ? const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                            SizedBox(width: 8),
-                            Text('Submitting...'),
-                          ],
-                        )
-                      : const Text('Submit Report'),
+                  child:
+                      _isSubmitting
+                          ? const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Text('Submitting...'),
+                            ],
+                          )
+                          : const Text('Submit Report'),
                 ),
               ),
             ],
@@ -165,9 +167,9 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
           children: [
             Text(
               'Upload Photo/Video',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
@@ -175,7 +177,7 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
-            
+
             if (_selectedImage != null)
               Stack(
                 children: [
@@ -310,27 +312,28 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
       children: [
         Text(
           'Category',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
-          children: _categories.map((category) {
-            final isSelected = _selectedCategory == category;
-            return FilterChip(
-              label: Text(category),
-              selected: isSelected,
-              onSelected: (selected) {
-                if (selected) {
-                  setState(() {
-                    _selectedCategory = category;
-                  });
-                }
-              },
-            );
-          }).toList(),
+          children:
+              _categories.map((category) {
+                final isSelected = _selectedCategory == category;
+                return FilterChip(
+                  label: Text(category),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    if (selected) {
+                      setState(() {
+                        _selectedCategory = category;
+                      });
+                    }
+                  },
+                );
+              }).toList(),
         ),
       ],
     );
@@ -342,28 +345,31 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
       children: [
         Text(
           'Severity',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
-          children: _severities.map((severity) {
-            final isSelected = _selectedSeverity == severity;
-            return FilterChip(
-              label: Text(severity),
-              selected: isSelected,
-              selectedColor: AppTheme.getSeverityColor(severity).withOpacity(0.3),
-              onSelected: (selected) {
-                if (selected) {
-                  setState(() {
-                    _selectedSeverity = severity;
-                  });
-                }
-              },
-            );
-          }).toList(),
+          children:
+              _severities.map((severity) {
+                final isSelected = _selectedSeverity == severity;
+                return FilterChip(
+                  label: Text(severity),
+                  selected: isSelected,
+                  selectedColor: AppTheme.getSeverityColor(
+                    severity,
+                  ).withOpacity(0.3),
+                  onSelected: (selected) {
+                    if (selected) {
+                      setState(() {
+                        _selectedSeverity = severity;
+                      });
+                    }
+                  },
+                );
+              }).toList(),
         ),
       ],
     );
@@ -393,9 +399,9 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
             const SizedBox(height: 8),
             Text(
               'Bengaluru, Karnataka, India',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Colors.grey[600],
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
             ),
           ],
         ),
@@ -406,28 +412,29 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
   void _showImageSourceDialog() {
     showModalBottomSheet(
       context: context,
-      builder: (context) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_camera),
-              title: const Text('Camera'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.camera);
-              },
+      builder:
+          (context) => SafeArea(
+            child: Wrap(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.photo_camera),
+                  title: const Text('Camera'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickImage(ImageSource.camera);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.photo_library),
+                  title: const Text('Gallery'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _pickImage(ImageSource.gallery);
+                  },
+                ),
+              ],
             ),
-            ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text('Gallery'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.gallery);
-              },
-            ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -435,32 +442,33 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
     try {
       final ImagePicker picker = ImagePicker();
       final XFile? image = await picker.pickImage(source: source);
-      
+
       if (image != null) {
         setState(() {
           _selectedImage = image;
         });
-        
+
         // Simulate AI analysis
         _analyzeImageWithAI(image.path);
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error picking image: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error picking image: $e')));
     }
   }
 
   Future<void> _analyzeImageWithAI(String imagePath) async {
     try {
-      final analysis = await MockDataService.analyzeImageWithGemini(imagePath);
+      final geminiService = ref.read(geminiServiceProvider);
+      final analysis = await geminiService.analyzeImageWithGemini(imagePath);
       setState(() {
         _aiAnalysis = analysis;
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error analyzing image: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error analyzing image: $e')));
     }
   }
 
@@ -474,8 +482,28 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
     });
 
     try {
-      // Simulate submission delay
+      print('🚀 Starting report submission...');
+      print('📊 Report Data: {');
+      print('  title: ${_titleController.text}');
+      print('  description: ${_descriptionController.text}');
+      print('  category: $_selectedCategory');
+      print('  severity: $_selectedSeverity');
+      print('  hasImage: ${_selectedImage != null}');
+      print('  aiAnalysis: $_aiAnalysis');
+      print('}');
+      
+      // Simulate API call delay
       await Future.delayed(const Duration(seconds: 2));
+      
+      // Simulate API response
+      final mockApiResponse = {
+        'success': true,
+        'reportId': 'RPT_${DateTime.now().millisecondsSinceEpoch}',
+        'status': 'submitted',
+        'timestamp': DateTime.now().toIso8601String(),
+      };
+      
+      print('✅ API Response: $mockApiResponse');
 
       // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
@@ -495,11 +523,11 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
         _selectedImage = null;
         _aiAnalysis = null;
       });
-
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error submitting report: $e')),
-      );
+      print('❌ API Error: $e');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error submitting report: $e')));
     } finally {
       setState(() {
         _isSubmitting = false;
@@ -510,32 +538,33 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
   void _showHelpDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('How to Report'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('1. Take a photo or video of the event'),
-            SizedBox(height: 8),
-            Text('2. Select the appropriate category'),
-            SizedBox(height: 8),
-            Text('3. Choose the severity level'),
-            SizedBox(height: 8),
-            Text('4. Provide a clear title and description'),
-            SizedBox(height: 8),
-            Text('5. Submit your report'),
-            SizedBox(height: 16),
-            Text('Your report helps keep the community safe and informed!'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Got it'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('How to Report'),
+            content: const Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('1. Take a photo or video of the event'),
+                SizedBox(height: 8),
+                Text('2. Select the appropriate category'),
+                SizedBox(height: 8),
+                Text('3. Choose the severity level'),
+                SizedBox(height: 8),
+                Text('4. Provide a clear title and description'),
+                SizedBox(height: 8),
+                Text('5. Submit your report'),
+                SizedBox(height: 16),
+                Text('Your report helps keep the community safe and informed!'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Got it'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 }

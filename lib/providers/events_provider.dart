@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/event.dart';
-import '../services/mock_data_service.dart';
+import '../services/alert_service.dart';
+import '../services/location_service.dart';
 
 // Events state provider
 final eventsProvider = StateNotifierProvider<EventsNotifier, AsyncValue<List<Event>>>((ref) {
@@ -53,7 +54,22 @@ class EventsNotifier extends StateNotifier<AsyncValue<List<Event>>> {
   Future<void> loadEvents() async {
     try {
       state = const AsyncValue.loading();
-      final events = await MockDataService.getEvents();
+      
+      // Get current location
+      final location = await LocationService.getCurrentLocation();
+      if (location == null) {
+        state = AsyncValue.error('Unable to get current location', StackTrace.current);
+        return;
+      }
+      
+      // Get events from AlertService (NDMA API)
+      final alertService = AlertService();
+      final events = await alertService.getNdmaAlertsForLocation(
+        latitude: location.lat,
+        longitude: location.lng,
+        radiusKm: 10.0, // Default radius
+      );
+      
       state = AsyncValue.data(events);
     } catch (error, stackTrace) {
       state = AsyncValue.error(error, stackTrace);

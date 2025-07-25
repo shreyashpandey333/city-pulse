@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import '../providers/user_provider.dart';
 import '../providers/chat_providers.dart';
+import '../providers/events_provider.dart';
 import '../models/chat_message.dart';
 import '../models/event.dart';
 import '../services/location_service.dart';
@@ -104,28 +104,35 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
   
   Future<void> _loadEventsAndLocation() async {
     try {
-      // Load events from JSON
-      final String eventsJson = await rootBundle.loadString('assets/mock_data/events.json');
-      final Map<String, dynamic> data = json.decode(eventsJson);
-      final List<dynamic> eventsData = data['events'];
-      
-      _events = eventsData.map((eventData) => Event.fromJson(eventData)).toList();
-      
       // Get current location
       _currentLocation = await LocationService.getCurrentLocation();
       
-      // Create markers
-      await _createMarkers();
+      // Load events from events provider (NDMA integration)
+      ref.read(eventsProvider.notifier).loadEvents();
       
       setState(() {});
     } catch (e) {
-      print('Error loading events and location: $e');
+      print('Error loading location: $e');
     }
   }
   
   Future<void> _createMarkers() async {
     Set<Marker> markers = {};
     
+    // Add event markers from _events
+    for (final event in _events) {
+      final marker = Marker(
+        markerId: MarkerId(event.eventId),
+        position: LatLng(event.location.lat, event.location.lng),
+        infoWindow: InfoWindow(
+          title: event.summary,
+          snippet: event.description,
+        ),
+        icon: await _createCustomMarkerIcon(_getMarkerColorByCategory(event.category), _getMarkerIconByCategory(event.category)),
+      );
+      markers.add(marker);
+    }
+
     // Add current location marker
     if (_currentLocation != null) {
       markers.add(
@@ -372,6 +379,18 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
   Widget build(BuildContext context) {
     final userAsync = ref.watch(userProvider);
     final chatMessages = ref.watch(chatMessageProvider);
+    final eventsAsync = ref.watch(eventsProvider);
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+    
+    // Update events and markers when events change
+    eventsAsync.whenData((events) {
+      if (_events != events) {
+        _events = events;
+        _createMarkers();
+      }
+    });
+    
     final screenHeight = MediaQuery.of(context).size.height;
     final statusBarHeight = MediaQuery.of(context).padding.top;
     

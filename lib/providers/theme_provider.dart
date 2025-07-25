@@ -19,22 +19,26 @@ class DynamicThemeState {
   final String alertLevel;
   final String backgroundGif;
   final bool showAlertBackground;
+  final bool isEmergencyTheme;
 
   const DynamicThemeState({
     this.alertLevel = 'none',
     this.backgroundGif = '',
     this.showAlertBackground = false,
+    this.isEmergencyTheme = false,
   });
 
   DynamicThemeState copyWith({
     String? alertLevel,
     String? backgroundGif,
     bool? showAlertBackground,
+    bool? isEmergencyTheme,
   }) {
     return DynamicThemeState(
       alertLevel: alertLevel ?? this.alertLevel,
       backgroundGif: backgroundGif ?? this.backgroundGif,
       showAlertBackground: showAlertBackground ?? this.showAlertBackground,
+      isEmergencyTheme: isEmergencyTheme ?? this.isEmergencyTheme,
     );
   }
 }
@@ -141,6 +145,10 @@ class DynamicThemeNotifier extends StateNotifier<DynamicThemeState> {
 
   void clearAlert() {
     state = const DynamicThemeState();
+  }
+
+  void setEmergencyTheme(bool isEmergency) {
+    state = state.copyWith(isEmergencyTheme: isEmergency);
   }
 }
 

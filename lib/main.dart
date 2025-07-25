@@ -8,11 +8,22 @@ import 'screens/home_screen.dart';
 import 'themes/app_theme.dart';
 import 'providers/user_provider.dart';
 import 'providers/theme_provider.dart';
+import 'services/alert_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  runApp(const ProviderScope(child: BengaluruCityPulseApp()));
+  
+  // Create provider container for alert service
+  final container = ProviderContainer();
+  
+  // Initialize alert service with provider container
+  await AlertService().initialize(providerContainer: container);
+  
+  runApp(ProviderScope(
+    parent: container,
+    child: const BengaluruCityPulseApp(),
+  ));
 }
 
 class BengaluruCityPulseApp extends ConsumerWidget {
