@@ -32,6 +32,66 @@ class LocationService {
     return true;
   }
 
+  /// Get current location as Position object
+  Future<Position> getCurrentPosition() async {
+    try {
+      final bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        // Return default Bengaluru coordinates as Position
+        return Position(
+          latitude: 12.9716,
+          longitude: 77.5946,
+          timestamp: DateTime.now(),
+          accuracy: 0,
+          altitude: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          headingAccuracy: 0,
+          speed: 0,
+          speedAccuracy: 0,
+        );
+      }
+
+      final bool permissionGranted = await requestLocationPermission();
+      if (!permissionGranted) {
+        // Return default Bengaluru coordinates as Position
+        return Position(
+          latitude: 12.9716,
+          longitude: 77.5946,
+          timestamp: DateTime.now(),
+          accuracy: 0,
+          altitude: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          headingAccuracy: 0,
+          speed: 0,
+          speedAccuracy: 0,
+        );
+      }
+
+      final Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      return position;
+    } catch (e) {
+      print('Error getting position: $e');
+      // Return default Bengaluru coordinates as Position
+      return Position(
+        latitude: 12.9716,
+        longitude: 77.5946,
+        timestamp: DateTime.now(),
+        accuracy: 0,
+        altitude: 0,
+        altitudeAccuracy: 0,
+        heading: 0,
+        headingAccuracy: 0,
+        speed: 0,
+        speedAccuracy: 0,
+      );
+    }
+  }
+
   /// Get current location
   static Future<Location?> getCurrentLocation() async {
     try {

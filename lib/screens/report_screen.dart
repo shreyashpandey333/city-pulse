@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
-import '../services/gemini_service.dart';
+import 'dart:io';
 import '../themes/app_theme.dart';
+import '../services/gemini_service.dart';
+import '../providers/user_provider.dart';
+import '../services/location_service.dart';
+import '../services/storage_service.dart';
 
 class ReportScreen extends ConsumerStatefulWidget {
   const ReportScreen({super.key});
@@ -190,8 +195,8 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        _selectedImage!.path,
+                      child: Image.file(
+                        File(_selectedImage!.path),
                         fit: BoxFit.cover,
                         errorBuilder: (context, error, stackTrace) {
                           return Container(
@@ -201,7 +206,7 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
                               children: [
                                 Icon(Icons.image, size: 48, color: Colors.grey),
                                 SizedBox(height: 8),
-                                Text('Image Preview'),
+                                Text('Image Preview Not Available'),
                               ],
                             ),
                           );
@@ -213,9 +218,10 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
                     top: 8,
                     right: 8,
                     child: CircleAvatar(
+                      radius: 16,
                       backgroundColor: Colors.black54,
                       child: IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white),
+                        icon: const Icon(Icons.close, color: Colors.white, size: 16),
                         onPressed: () {
                           setState(() {
                             _selectedImage = null;
@@ -229,7 +235,7 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
               )
             else
               GestureDetector(
-                onTap: _showImageSourceDialog,
+                onTap: () => _pickImage(ImageSource.camera),
                 child: Container(
                   height: 120,
                   width: double.infinity,
@@ -241,9 +247,14 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
                   child: const Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.add_a_photo, size: 48, color: Colors.grey),
+                      Icon(Icons.camera_alt, size: 48, color: Colors.grey),
                       SizedBox(height: 8),
-                      Text('Tap to add photo'),
+                      Text('Take Photo'),
+                      SizedBox(height: 4),
+                      Text(
+                        'Capture image using camera',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
                     ],
                   ),
                 ),
@@ -395,13 +406,36 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
               ],
             ),
             const SizedBox(height: 8),
-            const Text('Current location will be used for this report.'),
+            const Text('Your current location will be included with this report to help authorities respond faster.'),
             const SizedBox(height: 8),
-            Text(
-              'Bengaluru, Karnataka, India',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
+            FutureBuilder<String>(
+              future: _getCurrentLocationText(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Row(
+                    children: [
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Getting location...',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                return Text(
+                  snapshot.data ?? 'Bengaluru, Karnataka, India',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey[600],
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -409,33 +443,14 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
     );
   }
 
-  void _showImageSourceDialog() {
-    showModalBottomSheet(
-      context: context,
-      builder:
-          (context) => SafeArea(
-            child: Wrap(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.photo_camera),
-                  title: const Text('Camera'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _pickImage(ImageSource.camera);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.photo_library),
-                  title: const Text('Gallery'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _pickImage(ImageSource.gallery);
-                  },
-                ),
-              ],
-            ),
-          ),
-    );
+  Future<String> _getCurrentLocationText() async {
+    try {
+      final locationService = LocationService();
+      final position = await locationService.getCurrentPosition();
+      return 'Lat: ${position.latitude.toStringAsFixed(4)}, Lng: ${position.longitude.toStringAsFixed(4)}';
+    } catch (e) {
+      return 'Bengaluru, Karnataka, India';
+    }
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -483,55 +498,86 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
 
     try {
       print('🚀 Starting report submission...');
-      print('📊 Report Data: {');
-      print('  title: ${_titleController.text}');
-      print('  description: ${_descriptionController.text}');
-      print('  category: $_selectedCategory');
-      print('  severity: $_selectedSeverity');
-      print('  hasImage: ${_selectedImage != null}');
-      print('  aiAnalysis: $_aiAnalysis');
-      print('}');
       
-      // Simulate API call delay
-      await Future.delayed(const Duration(seconds: 2));
+      // Get current location
+      final locationService = LocationService();
+      final position = await locationService.getCurrentPosition();
+      print('📍 Location obtained: ${position.latitude}, ${position.longitude}');
       
-      // Simulate API response
-      final mockApiResponse = {
-        'success': true,
-        'reportId': 'RPT_${DateTime.now().millisecondsSinceEpoch}',
-        'status': 'submitted',
-        'timestamp': DateTime.now().toIso8601String(),
-      };
+      String? imageUrl;
       
-      print('✅ API Response: $mockApiResponse');
+      // Upload image to Firebase Storage if an image is selected
+      if (_selectedImage != null) {
+        print('📸 Uploading image to Firebase Storage...');
+        try {
+          imageUrl = await StorageService.uploadReportImage(File(_selectedImage!.path));
+          print('✅ Image uploaded successfully: $imageUrl');
+        } catch (imageError) {
+          print('❌ Error uploading image: $imageError');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Warning: Image upload failed. Report will be submitted without image.'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          // Continue without image
+          imageUrl = null;
+        }
+      }
 
-      // Show success message
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Report submitted successfully!'),
-          backgroundColor: AppTheme.successGreen,
-        ),
+      // Submit report to Firestore
+      final reportId = await ref.read(userReportsProvider.notifier).submitReport(
+        title: _titleController.text,
+        description: _descriptionController.text,
+        category: _selectedCategory,
+        severity: _selectedSeverity,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        imageUrl: imageUrl, // Use the uploaded Firebase Storage URL
       );
 
-      // Reset form
-      _formKey.currentState!.reset();
-      _titleController.clear();
-      _descriptionController.clear();
-      setState(() {
-        _selectedCategory = 'Traffic';
-        _selectedSeverity = 'Medium';
-        _selectedImage = null;
-        _aiAnalysis = null;
-      });
+      print('✅ Report submitted successfully with ID: $reportId');
+      
+      // Refresh user data to update reports count
+      ref.read(userProvider.notifier).refreshUserData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Report submitted successfully!'),
+            backgroundColor: AppTheme.successGreen,
+          ),
+        );
+
+        // Reset form
+        _formKey.currentState!.reset();
+        _titleController.clear();
+        _descriptionController.clear();
+        setState(() {
+          _selectedCategory = 'Traffic';
+          _selectedSeverity = 'Medium';
+          _selectedImage = null;
+          _aiAnalysis = null;
+        });
+      }
     } catch (e) {
-      print('❌ API Error: $e');
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error submitting report: $e')));
+      print('❌ Error submitting report: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error submitting report: ${e.toString()}'),
+            backgroundColor: AppTheme.alertRed,
+          ),
+        );
+      }
     } finally {
-      setState(() {
-        _isSubmitting = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
     }
   }
 

@@ -200,8 +200,14 @@ class _NewDashboardScreenState extends ConsumerState<NewDashboardScreen>
               animation: _chatHeightAnimation,
               builder: (context, child) {
                 final bottomPadding = MediaQuery.of(context).padding.bottom;
+                final safeHeight = _chatHeightAnimation.value;
+                
                 return Container(
-                  height: _chatHeightAnimation.value + bottomPadding,
+                  height: safeHeight + bottomPadding,
+                  constraints: BoxConstraints(
+                    maxHeight: screenHeight * 0.7, // Prevent overflow
+                    minHeight: _minChatHeight + bottomPadding,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(_chatOpacityAnimation.value),
                     borderRadius: const BorderRadius.vertical(
@@ -216,172 +222,180 @@ class _NewDashboardScreenState extends ConsumerState<NewDashboardScreen>
                       ),
                     ],
                   ),
-                  child: Column(
-                    children: [
-                      // Drag handle and header
-                      GestureDetector(
-                        onTap: _toggleChat,
-                        onPanUpdate: (details) {
-                          // Handle swipe gestures
-                          final dy = details.delta.dy;
-                          if (dy.abs() > 2) { // Threshold to prevent accidental swipes
-                            if (dy < -5 && !_isChatExpanded) {
-                              // Swipe up to expand
-                              _toggleChat();
-                            } else if (dy > 5 && _isChatExpanded) {
-                              // Swipe down to collapse
-                              _toggleChat();
+                  child: SafeArea(
+                    top: false,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Drag handle and header
+                        GestureDetector(
+                          onTap: _toggleChat,
+                          onPanUpdate: (details) {
+                            // Handle swipe gestures
+                            final dy = details.delta.dy;
+                            if (dy.abs() > 2) { // Threshold to prevent accidental swipes
+                              if (dy < -5 && !_isChatExpanded) {
+                                // Swipe up to expand
+                                _toggleChat();
+                              } else if (dy > 5 && _isChatExpanded) {
+                                // Swipe down to collapse
+                                _toggleChat();
+                              }
                             }
-                          }
-                        },
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: const BoxDecoration(
-                            borderRadius: BorderRadius.vertical(
-                              top: Radius.circular(24),
+                          },
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            decoration: const BoxDecoration(
+                              borderRadius: BorderRadius.vertical(
+                                top: Radius.circular(24),
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                // Drag handle
+                                Container(
+                                  width: 50,
+                                  height: 4,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[400],
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                // Chat header
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.chat_bubble_outline,
+                                      color: AppTheme.primaryPurple,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Ask about your area',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppTheme.primaryPurple,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    AnimatedRotation(
+                                      turns: _isChatExpanded ? 0.5 : 0,
+                                      duration: const Duration(milliseconds: 300),
+                                      child: Icon(
+                                        Icons.keyboard_arrow_up,
+                                        color: AppTheme.primaryPurple,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
-                          child: Column(
+                        ),
+                        
+                        // Chat messages (only visible when expanded)
+                        if (_isChatExpanded)
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              constraints: BoxConstraints(
+                                maxHeight: _maxChatHeight - 120, // Reserve space for input
+                              ),
+                              child: ListView.builder(
+                                controller: _chatScrollController,
+                                shrinkWrap: true,
+                                itemCount: chatMessages.length,
+                                itemBuilder: (context, index) {
+                                  final message = chatMessages[index];
+                                  return _buildChatBubble(message);
+                                },
+                              ),
+                            ),
+                          ),
+                        
+                        // Chat input
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[50],
+                            border: Border(
+                              top: BorderSide(
+                                color: Colors.grey[200]!,
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                          child: Row(
                             children: [
-                              // Drag handle
-                              Container(
-                                width: 50,
-                                height: 4,
-                                decoration: BoxDecoration(
-                                  color: Colors.grey[400],
-                                  borderRadius: BorderRadius.circular(2),
+                              Expanded(
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(25),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.grey.withOpacity(0.1),
+                                        blurRadius: 5,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: TextField(
+                                    controller: _messageController,
+                                    decoration: InputDecoration(
+                                      hintText: 'Ask about traffic, events, weather...',
+                                      hintStyle: GoogleFonts.poppins(
+                                        color: Colors.grey[500],
+                                        fontSize: 14,
+                                      ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(25),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(
+                                        horizontal: 20,
+                                        vertical: 12,
+                                      ),
+                                    ),
+                                    onSubmitted: _sendMessage,
+                                  ),
                                 ),
                               ),
-                              const SizedBox(height: 12),
-                              // Chat header
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.chat_bubble_outline,
-                                    color: AppTheme.primaryPurple,
+                              const SizedBox(width: 12),
+                              GestureDetector(
+                                onTap: () => _sendMessage(_messageController.text),
+                                child: Container(
+                                  width: 48,
+                                  height: 48,
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [AppTheme.primaryPurple, AppTheme.primaryBlue],
+                                    ),
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: AppTheme.primaryPurple.withOpacity(0.3),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Icon(
+                                    Icons.send,
+                                    color: Colors.white,
                                     size: 20,
                                   ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Ask about your area',
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.primaryPurple,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  AnimatedRotation(
-                                    turns: _isChatExpanded ? 0.5 : 0,
-                                    duration: const Duration(milliseconds: 300),
-                                    child: Icon(
-                                      Icons.keyboard_arrow_up,
-                                      color: AppTheme.primaryPurple,
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ],
                           ),
                         ),
-                      ),
-                      
-                      // Chat messages (only visible when expanded)
-                      if (_isChatExpanded)
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: ListView.builder(
-                              controller: _chatScrollController,
-                              itemCount: chatMessages.length,
-                              itemBuilder: (context, index) {
-                                final message = chatMessages[index];
-                                return _buildChatBubble(message);
-                              },
-                            ),
-                          ),
-                        ),
-                      
-                      // Chat input
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[50],
-                          border: Border(
-                            top: BorderSide(
-                              color: Colors.grey[200]!,
-                              width: 1,
-                            ),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(25),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.grey.withOpacity(0.1),
-                                      blurRadius: 5,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: TextField(
-                                  controller: _messageController,
-                                  decoration: InputDecoration(
-                                    hintText: 'Ask about traffic, events, weather...',
-                                    hintStyle: GoogleFonts.poppins(
-                                      color: Colors.grey[500],
-                                      fontSize: 14,
-                                    ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(25),
-                                      borderSide: BorderSide.none,
-                                    ),
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 20,
-                                      vertical: 12,
-                                    ),
-                                  ),
-                                  onSubmitted: _sendMessage,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            GestureDetector(
-                              onTap: () => _sendMessage(_messageController.text),
-                              child: Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [AppTheme.primaryPurple, AppTheme.primaryBlue],
-                                  ),
-                                  shape: BoxShape.circle,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AppTheme.primaryPurple.withOpacity(0.3),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 4),
-                                    ),
-                                  ],
-                                ),
-                                child: const Icon(
-                                  Icons.send,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 );
               },

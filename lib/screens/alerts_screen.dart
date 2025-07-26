@@ -10,17 +10,10 @@ class AlertsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final alertsAsync = ref.watch(activeNdmaAlertsProvider);
-    final filters = ref.watch(ndmaAlertFiltersProvider);
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Active Disaster Alerts'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.filter_list),
-            onPressed: () => _showFilters(context, ref),
-          ),
-        ],
+        title: const Text('Alerts'),
       ),
       body: alertsAsync.when(
         data: (alerts) => RefreshIndicator(
@@ -61,17 +54,12 @@ class AlertsScreen extends ConsumerWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.error, size: 64, color: Colors.red),
+              const Icon(Icons.error, size: 64, color: Colors.grey),
               const SizedBox(height: 16),
-              Text(
-                'Error loading alerts',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
+              const Text('Error loading alerts'),
               const SizedBox(height: 8),
               ElevatedButton(
-                onPressed: () {
-                  ref.read(ndmaAlertsProvider.notifier).refreshAlerts();
-                },
+                onPressed: () => ref.read(ndmaAlertsProvider.notifier).refreshAlerts(),
                 child: const Text('Retry'),
               ),
             ],
@@ -86,6 +74,9 @@ class AlertsScreen extends ConsumerWidget {
     
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
+      constraints: const BoxConstraints(
+        maxWidth: double.infinity,
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
@@ -119,10 +110,10 @@ class AlertsScreen extends ConsumerWidget {
                   child: Icon(
                     _getDisasterIcon(alert.disasterType),
                     color: Colors.white,
-                    size: 18,
+                    size: 20,
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -130,17 +121,18 @@ class AlertsScreen extends ConsumerWidget {
                       Text(
                         alert.disasterType,
                         style: GoogleFonts.poppins(
-                          fontSize: 16,
+                          fontSize: 18,
                           fontWeight: FontWeight.bold,
                           color: Colors.grey[800],
                         ),
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      const SizedBox(height: 2),
                       Text(
                         _getSeverityText(alert.severityLevel),
                         style: GoogleFonts.poppins(
-                          fontSize: 12,
+                          fontSize: 14,
                           fontWeight: FontWeight.w600,
                           color: alertColor,
                         ),
@@ -152,15 +144,15 @@ class AlertsScreen extends ConsumerWidget {
                 ),
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: Colors.red,
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     'ACTIVE',
                     style: GoogleFonts.poppins(
-                      fontSize: 10,
+                      fontSize: 12,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
@@ -179,7 +171,7 @@ class AlertsScreen extends ConsumerWidget {
                 Text(
                   alert.areaDescription,
                   style: GoogleFonts.poppins(
-                    fontSize: 14,
+                    fontSize: 16,
                     fontWeight: FontWeight.w600,
                     color: Colors.grey[800],
                   ),
@@ -194,6 +186,8 @@ class AlertsScreen extends ConsumerWidget {
                     color: Colors.grey[700],
                     height: 1.4,
                   ),
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -204,11 +198,15 @@ class AlertsScreen extends ConsumerWidget {
                       color: Colors.grey[600],
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      'Valid till ${alert.timeRange}',
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        color: Colors.grey[600],
+                    Expanded(
+                      child: Text(
+                        'Valid till ${alert.timeRange}',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Colors.grey[600],
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
@@ -217,70 +215,6 @@ class AlertsScreen extends ConsumerWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showFilters(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Filter Disaster Alerts',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 16),
-            
-            // Show only active alerts toggle
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Show only active alerts',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                Switch(
-                  value: ref.read(ndmaAlertFiltersProvider).showOnlyActive,
-                  onChanged: (value) {
-                    ref.read(ndmaAlertFiltersProvider.notifier).setShowOnlyActive(value);
-                  },
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 24),
-            
-            // Action buttons
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () {
-                      ref.read(ndmaAlertFiltersProvider.notifier).clearFilters();
-                      Navigator.pop(context);
-                    },
-                    child: const Text('Clear All'),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                    },
-                    child: const Text('Apply'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
       ),
     );
   }

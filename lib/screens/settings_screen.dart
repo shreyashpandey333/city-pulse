@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/user_provider.dart';
+import '../providers/theme_provider.dart';
 import '../themes/app_theme.dart';
 import '../services/alert_service.dart';
+import '../screens/user_reports_screen.dart';
+import '../screens/leaderboard_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -10,11 +13,47 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final userAsync = ref.watch(userProvider);
-    final isDarkMode = ref.watch(themeProvider);
+    final themeAsync = ref.watch(themeProvider);
     
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
+        backgroundColor: AppTheme.primaryPurple,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () async {
+              // Manual refresh all data
+              try {
+                await Future.wait([
+                  ref.read(userProvider.notifier).refreshUserData(),
+                  ref.read(userReportsProvider.notifier).refreshReports(),
+                  ref.read(leaderboardProvider.notifier).refreshLeaderboard(),
+                ]);
+                
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Data refreshed successfully!'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Refresh failed: ${e.toString()}'),
+                      backgroundColor: Colors.red,
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
+              }
+            },
+          ),
+        ],
       ),
       body: userAsync.when(
         data: (user) => SingleChildScrollView(
@@ -22,8 +61,8 @@ class SettingsScreen extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // User Profile Section
-              _buildUserProfileSection(context, user),
+              // User Profile Section (with reports, reputation, and leaderboard)
+              _buildUserProfileSection(context, ref, user),
               const SizedBox(height: 24),
               
               // Notification Settings
@@ -31,25 +70,44 @@ class SettingsScreen extends ConsumerWidget {
               const SizedBox(height: 24),
               
               // App Settings
-              _buildAppSettings(context, ref, isDarkMode),
+              _buildAppSettings(context, ref, user, themeAsync),
               const SizedBox(height: 24),
               
               // About Section
               _buildAboutSection(context),
+              const SizedBox(height: 32),
             ],
           ),
         ),
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Loading your profile...'),
+            ],
+          ),
+        ),
         error: (error, stackTrace) => Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Icon(Icons.error, size: 64, color: Colors.red),
               const SizedBox(height: 16),
-              Text('Error loading settings: $error'),
+              Text(
+                'Error loading profile',
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                error.toString(),
+                style: const TextStyle(color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: () => ref.read(userProvider.notifier).loadUser(),
+                onPressed: () => ref.read(userProvider.notifier).refreshUserData(),
                 child: const Text('Retry'),
               ),
             ],
@@ -59,81 +117,201 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildUserProfileSection(BuildContext context, dynamic user) {
+  Widget _buildUserProfileSection(BuildContext context, WidgetRef ref, dynamic user) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 30,
-backgroundColor: AppTheme.primaryPurple,
-                  child: Text(
-                    user.name[0].toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 24,
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              AppTheme.primaryPurple.withValues(alpha: 0.02),
+            ],
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  Text(
+                    'Profile',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: AppTheme.primaryPurple,
                     ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        user.name,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryPurple.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: AppTheme.primaryPurple.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.verified_user,
+                          size: 16,
+                          color: AppTheme.primaryPurple,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Verified',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.primaryPurple,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // User basic info
+              Row(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.primaryPurple.withValues(alpha: 0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: CircleAvatar(
+                      radius: 35,
+                      backgroundColor: AppTheme.primaryPurple,
+                      child: Text(
+                        user.name.isNotEmpty ? user.name[0].toUpperCase() : 'U',
+                        style: const TextStyle(
+                          fontSize: 28,
                           fontWeight: FontWeight.bold,
+                          color: Colors.white,
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        user.email,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          user.name,
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[800],
+                          ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            user.email,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.grey[700],
+                              fontWeight: FontWeight.w500,
+                              fontSize: 12,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.location_on,
+                              size: 16,
+                              color: Colors.grey[500],
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                user.location.address,
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: Colors.grey[500],
+                                  fontSize: 12,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
+                ],
+              ),
+              
+              const SizedBox(height: 32),
+              
+              // Stats section header
+              Text(
+                'Community Stats',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[800],
                 ),
-                IconButton(
-                  icon: const Icon(Icons.edit),
-                  onPressed: () {
-                    // TODO: Navigate to edit profile
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            
-            // Stats Row
-            Row(
-              children: [
-                Expanded(
-                  child: _buildStatItem(
-                    context,
-                    'Reports Submitted',
-                    user.reportsSubmitted.toString(),
-                    Icons.report,
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Stats row (Reports and Reputation)
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildStatItem(
+                      context,
+                      ref,
+                      'Submitted Reports',
+                      user.reportsSubmitted.toString(),
+                      Icons.assignment_turned_in,
+                      AppTheme.primaryBlue,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _buildStatItem(
-                    context,
-                    'Reputation',
-                    user.reputation.toString(),
-                    Icons.star,
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildStatItem(
+                      context,
+                      ref,
+                      'Reputation',
+                      user.reputation.toString(),
+                      Icons.star,
+                      AppTheme.primaryPurple,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+              
+              const SizedBox(height: 20),
+              
+              // Leaderboard section
+              _buildLeaderboardSection(context, ref),
+            ],
+          ),
         ),
       ),
     );
@@ -141,36 +319,189 @@ backgroundColor: AppTheme.primaryPurple,
 
   Widget _buildStatItem(
     BuildContext context,
+    WidgetRef ref,
     String label,
     String value,
     IconData icon,
+    Color color,
   ) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-color: AppTheme.primaryPurple.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        children: [
-Icon(icon, color: AppTheme.primaryPurple),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-color: AppTheme.primaryPurple,
+    return GestureDetector(
+      onTap: label == 'Submitted Reports' ? () => _navigateToReports(context, ref) : null,
+      child: Container(
+        height: 170, // Increased height to prevent overflow
+        padding: const EdgeInsets.all(12), // Reduced padding
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: color.withValues(alpha: 0.2),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.bodySmall,
-            textAlign: TextAlign.center,
-          ),
-        ],
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10), // Reduced padding
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Icon(
+                icon,
+                size: 22, // Slightly reduced icon size
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 10), // Reduced spacing
+            Text(
+              value,
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: color,
+                fontSize: 28, // Reduced from default
+              ),
+            ),
+            const SizedBox(height: 4), // Reduced spacing
+            Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w600,
+                fontSize: 11, // Reduced font size
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (label == 'Submitted Reports') ...[
+              const SizedBox(height: 4), // Reduced spacing
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1), // Reduced padding
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'Tap to view',
+                  style: TextStyle(
+                    fontSize: 9, // Reduced font size
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+            if (label != 'Submitted Reports') const SizedBox(height: 16), // Reduced balance spacing
+          ],
+        ),
       ),
     );
+  }
+
+  Widget _buildLeaderboardSection(BuildContext context, WidgetRef ref) {
+    return GestureDetector(
+      onTap: () => _navigateToLeaderboard(context, ref),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppTheme.primaryPurple,
+              AppTheme.primaryBlue,
+            ],
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.primaryPurple.withValues(alpha: 0.3),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.leaderboard,
+                color: Colors.white,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Community Leaderboard',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'See how you rank among top contributors',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.9),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.arrow_forward,
+                color: Colors.white,
+                size: 20,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _navigateToReports(BuildContext context, WidgetRef ref) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const UserReportsScreen(),
+      ),
+    );
+    
+    // Refresh user data when returning from reports screen
+    // This ensures the reports count is updated
+    ref.read(userProvider.notifier).refreshUserData();
   }
 
   Widget _buildNotificationSettings(
@@ -223,33 +554,13 @@ color: AppTheme.primaryPurple,
               trailing: const Icon(Icons.arrow_forward_ios),
               onTap: () => _showCategoriesDialog(context, ref, user),
             ),
-            
-            const Divider(),
-            
-            ListTile(
-              leading: const Icon(Icons.notifications_active, color: AppTheme.primaryPurple),
-              title: const Text('Test Notification'),
-              subtitle: const Text('Send a test push notification'),
-              trailing: const Icon(Icons.send),
-              onTap: () async {
-                await AlertService().sendTestNotification();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Test notification sent!'),
-                      backgroundColor: AppTheme.successGreen,
-                    ),
-                  );
-                }
-              },
-            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildAppSettings(BuildContext context, WidgetRef ref, bool isDarkMode) {
+  Widget _buildAppSettings(BuildContext context, WidgetRef ref, dynamic user, bool themeAsync) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -267,9 +578,15 @@ color: AppTheme.primaryPurple,
             SwitchListTile(
               title: const Text('Dark Mode'),
               subtitle: const Text('Use dark theme'),
-              value: isDarkMode,
+              value: themeAsync,
               onChanged: (value) {
+                // Update both theme provider and user preferences
                 ref.read(themeProvider.notifier).setTheme(value);
+                
+                final newPreferences = user.preferences.copyWith(
+                  darkMode: value,
+                );
+                ref.read(userProvider.notifier).updateUserPreferences(newPreferences);
               },
             ),
             
@@ -288,6 +605,17 @@ color: AppTheme.primaryPurple,
             const Divider(),
             
             ListTile(
+              leading: const Icon(Icons.help),
+              title: const Text('Help & Support'),
+              trailing: const Icon(Icons.arrow_forward_ios),
+              onTap: () {
+                // TODO: Show help screen
+              },
+            ),
+            
+            const Divider(),
+            
+            ListTile(
               leading: const Icon(Icons.storage),
               title: const Text('Clear Cache'),
               subtitle: const Text('Free up storage space'),
@@ -298,6 +626,20 @@ color: AppTheme.primaryPurple,
         ),
       ),
     );
+  }
+
+  void _navigateToLeaderboard(BuildContext context, WidgetRef ref) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const LeaderboardScreen(),
+      ),
+    );
+    
+    // Only refresh user data when returning from leaderboard if needed
+    if (result == true) {
+      ref.read(userProvider.notifier).refreshUserData();
+    }
   }
 
   Widget _buildAboutSection(BuildContext context) {

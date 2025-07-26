@@ -14,7 +14,7 @@ class RecentEventsScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Recent Disaster Alerts'),
+        title: const Text('Recent Events'),
         backgroundColor: theme.colorScheme.primary,
       ),
       body: alertsAsync.when(

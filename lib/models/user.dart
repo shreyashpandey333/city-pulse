@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'event.dart';
 
 class User {
@@ -41,6 +42,138 @@ class User {
       'reputation': reputation,
       'reportsSubmitted': reportsSubmitted,
     };
+  }
+
+  User copyWith({
+    String? userId,
+    String? name,
+    String? email,
+    Location? location,
+    UserPreferences? preferences,
+    int? reputation,
+    int? reportsSubmitted,
+  }) {
+    return User(
+      userId: userId ?? this.userId,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      location: location ?? this.location,
+      preferences: preferences ?? this.preferences,
+      reputation: reputation ?? this.reputation,
+      reportsSubmitted: reportsSubmitted ?? this.reportsSubmitted,
+    );
+  }
+}
+
+class Report {
+  final String id;
+  final String title;
+  final String description;
+  final String category;
+  final String severity;
+  final DateTime submittedAt;
+  final ReportStatus status;
+  final String? feedback;
+  final String submittedByUid;
+  final double latitude;
+  final double longitude;
+  final String? imageUrl;
+
+  Report({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.category,
+    required this.severity,
+    required this.submittedAt,
+    required this.status,
+    required this.submittedByUid,
+    required this.latitude,
+    required this.longitude,
+    this.feedback,
+    this.imageUrl,
+  });
+
+  factory Report.fromJson(Map<String, dynamic> json) {
+    return Report(
+      id: json['id'] ?? '',
+      title: json['title'] ?? '',
+      description: json['description'] ?? '',
+      category: json['category'] ?? '',
+      severity: json['severity'] ?? '',
+      submittedAt: DateTime.parse(json['submittedAt'] ?? DateTime.now().toIso8601String()),
+      status: ReportStatus.values.firstWhere(
+        (status) => status.toString().split('.').last == json['status'],
+        orElse: () => ReportStatus.submitted,
+      ),
+      submittedByUid: json['submittedByUid'] ?? '',
+      latitude: (json['latitude'] ?? 0.0).toDouble(),
+      longitude: (json['longitude'] ?? 0.0).toDouble(),
+      feedback: json['feedback'],
+      imageUrl: json['imageUrl'],
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'description': description,
+      'category': category,
+      'severity': severity,
+      'submittedAt': submittedAt.toIso8601String(),
+      'status': status.toString().split('.').last,
+      'submittedByUid': submittedByUid,
+      'latitude': latitude,
+      'longitude': longitude,
+      'feedback': feedback,
+      'imageUrl': imageUrl,
+    };
+  }
+}
+
+enum ReportStatus {
+  submitted,
+  pending,
+  underReview,
+  approved,
+  rejected,
+  resolved,
+}
+
+extension ReportStatusExtension on ReportStatus {
+  String get displayName {
+    switch (this) {
+      case ReportStatus.submitted:
+        return 'Submitted';
+      case ReportStatus.pending:
+        return 'Pending';
+      case ReportStatus.underReview:
+        return 'Under Review';
+      case ReportStatus.approved:
+        return 'Approved';
+      case ReportStatus.rejected:
+        return 'Rejected';
+      case ReportStatus.resolved:
+        return 'Resolved';
+    }
+  }
+
+  Color get statusColor {
+    switch (this) {
+      case ReportStatus.submitted:
+        return const Color(0xFF06B6D4); // Cyan
+      case ReportStatus.pending:
+        return const Color(0xFFF59E0B); // Orange
+      case ReportStatus.underReview:
+        return const Color(0xFF8B5CF6); // Purple
+      case ReportStatus.approved:
+        return const Color(0xFF22C55E); // Green
+      case ReportStatus.rejected:
+        return const Color(0xFFEF4444); // Red
+      case ReportStatus.resolved:
+        return const Color(0xFF10B981); // Emerald
+    }
   }
 }
 

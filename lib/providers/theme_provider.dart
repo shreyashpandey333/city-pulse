@@ -1,5 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+// Theme provider for dark/light mode
+final themeProvider = StateNotifierProvider<ThemeNotifier, bool>((ref) {
+  return ThemeNotifier();
+});
+
 // Dynamic theme provider based on alert levels
 final dynamicThemeProvider = StateNotifierProvider<DynamicThemeNotifier, DynamicThemeState>((ref) {
   return DynamicThemeNotifier();
@@ -14,6 +19,18 @@ final chatPanelStateProvider = StateNotifierProvider<ChatPanelStateNotifier, Cha
 final mapStateProvider = StateNotifierProvider<MapStateNotifier, MapState>((ref) {
   return MapStateNotifier();
 });
+
+class ThemeNotifier extends StateNotifier<bool> {
+  ThemeNotifier() : super(false); // false = light mode, true = dark mode
+
+  void setTheme(bool isDark) {
+    state = isDark;
+  }
+
+  void toggleTheme() {
+    state = !state;
+  }
+}
 
 class DynamicThemeState {
   final String alertLevel;
