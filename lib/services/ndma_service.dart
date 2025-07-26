@@ -1,220 +1,240 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/event.dart';
+import '../models/ndma_alert.dart';
 
 class NdmaService {
   static const String _baseUrl = 'https://sachet.ndma.gov.in/cap_public_website/FetchLocationWiseAlerts';
   
-  /// Fetch location-wise alerts from NDMA API
-  static Future<List<Event>> fetchLocationWiseAlerts({
-    required double latitude,
-    required double longitude,
-    required double radiusKm,
-  }) async {
-    try {
-      final uri = Uri.parse('$_baseUrl?lat=${latitude.toString()}&long=${longitude.toString()}&radius=${radiusKm.toString()}');
+  /// Fetch NDMA alerts with proper parsing for all required fields
+ static Future<List<NdmaAlert>> fetchNdmaAlerts({
+  required double latitude,
+  required double longitude,
+  required double radiusKm,
+}) async {
+  try {
+    // Use both query params AND body (as shown in your Postman request)
+    final uri = Uri.parse('$_baseUrl?lat=$latitude&long=$longitude&radius=${radiusKm.toInt()}');
 
-      print('Fetching NDMA alerts from: $uri');
+    print('🌐 Fetching NDMA alerts from: $uri');
+    print('📍 Request parameters: lat=$latitude, lng=$longitude, radius=${radiusKm}km');
 
-      final response = await http.post(
-        uri,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'User-Agent': 'Mozilla/5.0',
-        },
-        body: json.encode({
-          'lat': latitude,
-          'long': longitude,
-          'radius': radiusKm,
-        }),
-      ).timeout(const Duration(seconds: 30));
+    final response = await http.post(
+      uri,
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Content-Type': 'application/json',
+      },
+      body: json.encode({
+        'lat': latitude,
+        'longi': longitude,    // Key change: 'longi' instead of 'long'
+        'radius': radiusKm.toInt(),
+      }),
+    ).timeout(const Duration(seconds: 30));
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        print('NDMA API response: $data');
-        
-        final events = _parseNdmaResponse(data);
-        
-        // If no real alerts, add mock data for testing UI
-        if (events.isEmpty) {
-          print('No NDMA alerts found, adding mock data for testing');
-          return _generateMockAlerts(latitude, longitude);
-        }
-        
-        return events;
-      } else {
-        print('NDMA API error: ${response.statusCode} - ${response.body}');
-        // Return mock data on API error for testing
-        return _generateMockAlerts(latitude, longitude);
+    print('📡 NDMA API Response Status: ${response.statusCode}');
+    
+    if (response.statusCode == 200) {
+      final responseBody = response.body;
+      print('📄 Response body length: ${responseBody.length} characters');
+      
+      if (responseBody.trim().isEmpty) {
+        print('⚠️ Empty response body from NDMA API');
+        return [];
       }
-    } catch (e) {
-      print('Error fetching NDMA alerts: $e');
-      // Return mock data on exception for testing
-      return _generateMockAlerts(latitude, longitude);
+      
+      final data = json.decode(responseBody);
+      print('✅ Successfully parsed NDMA JSON response');
+      
+      final alerts = await _parseNdmaAlertsResponseAsync(data);
+      print('📝 Parsed ${alerts.length} alerts from NDMA API');
+      
+      // Validate parsed alerts
+      for (final alert in alerts) {
+        _validateAlertCoordinates(alert);
+      }
+      
+      print('✅ Returning ${alerts.length} NDMA alerts');
+      return alerts;
+    } else {
+      print('❌ NDMA API error: ${response.statusCode}');
+      print('💬 Error response: ${response.body}');
+      return [];
     }
+  } catch (e, stackTrace) {
+    print('💥 Exception fetching NDMA alerts: $e');
+    print('📚 Stack trace: $stackTrace');
+    return [];
   }
+}
 
-  /// Parse NDMA API response and convert to Event objects
-  static List<Event> _parseNdmaResponse(dynamic data) {
-    final List<Event> events = [];
+  /// Parse NDMA API response and convert to NdmaAlert objects (async version for performance)
+  static Future<List<NdmaAlert>> _parseNdmaAlertsResponseAsync(dynamic data) async {
+    final List<NdmaAlert> alerts = [];
     
     try {
       // Handle different possible response structures
-      List<dynamic> alerts = [];
+      List<dynamic> alertsData = [];
       
       if (data is List) {
-        alerts = data;
+        alertsData = data;
+        print('📋 Processing ${alertsData.length} alerts from List structure');
       } else if (data is Map && data.containsKey('alerts')) {
-        alerts = data['alerts'] as List? ?? [];
+        alertsData = data['alerts'] as List? ?? [];
+        print('📋 Processing ${alertsData.length} alerts from "alerts" key');
       } else if (data is Map && data.containsKey('data')) {
-        alerts = data['data'] as List? ?? [];
-      } else if (data is Map && data.containsKey('features')) {
-        alerts = data['features'] as List? ?? [];
+        alertsData = data['data'] as List? ?? [];
+        print('📋 Processing ${alertsData.length} alerts from "data" key');
+      } else {
+        print('⚠️ Unexpected NDMA API response structure: ${data.runtimeType}');
+        return [];
       }
 
-      for (final alert in alerts) {
-        if (alert is Map<String, dynamic>) {
-          final event = _parseAlertToEvent(alert);
-          if (event != null) {
-            events.add(event);
+      if (alertsData.isEmpty) {
+        print('ℹ️ No alerts in NDMA API response');
+        return [];
+      }
+
+      // Process each alert in parallel for better performance
+      for (int i = 0; i < alertsData.length; i++) {
+        final alertData = alertsData[i];
+        
+        if (alertData is! Map<String, dynamic>) {
+          print('⚠️ Skipping invalid alert data at index $i: ${alertData.runtimeType}');
+          continue;
+        }
+
+        try {
+          final alert = NdmaAlert.fromJson(alertData);
+          
+          // Only add valid, active alerts
+          if (alert.isActive && _isValidAlert(alert)) {
+            alerts.add(alert);
+            print('✅ Added alert: ${alert.disasterType} for ${alert.areaDescription}');
+          } else {
+            print('⚠️ Skipping inactive or invalid alert: ${alert.alertId}');
           }
+        } catch (e) {
+          print('❌ Error parsing alert at index $i: $e');
         }
       }
-    } catch (e) {
-      print('Error parsing NDMA response: $e');
-    }
 
+      print('🎯 Successfully parsed ${alerts.length} valid alerts');
+      return alerts;
+    } catch (e, stackTrace) {
+      print('💥 Error parsing NDMA alerts response: $e');
+      print('📚 Stack trace: $stackTrace');
+      return [];
+    }
+  }
+
+  /// Convert NDMA alerts to Event objects for backward compatibility
+  static Future<List<Event>> convertNdmaAlertsToEvents(List<NdmaAlert> ndmaAlerts) async {
+    final List<Event> events = [];
+    
+    for (final alert in ndmaAlerts) {
+      try {
+        final event = Event(
+          eventId: alert.alertId,
+          eventType: _categorizeDisasterType(alert.disasterType),
+          severity: alert.severity,
+          location: Location(
+            lat: alert.centroid.lat,
+            lng: alert.centroid.lng,
+            address: alert.areaDescription,
+          ),
+          mediaURL: '',
+          timestamp: alert.effectiveStartTime,
+          summary: _createEventSummary(alert),
+          description: alert.getLocalizedWarningMessage(),
+          reportedBy: alert.alertSource,
+          category: _categorizeDisasterType(alert.disasterType),
+          impactRadius: _calculateImpactRadius(alert.severity),
+        );
+        
+        events.add(event);
+      } catch (e) {
+        print('❌ Error converting NDMA alert to Event: $e');
+      }
+    }
+    
     return events;
   }
 
-  /// Parse individual alert object to Event
-  static Event? _parseAlertToEvent(Map<String, dynamic> alert) {
-    try {
-      // Extract basic information
-      final String? identifier = alert['identifier'] ?? alert['id'];
-      final String? event = alert['event'] ?? alert['eventType'] ?? alert['type'];
-      final String? headline = alert['headline'] ?? alert['title'] ?? alert['summary'];
-      final String? description = alert['description'] ?? alert['desc'] ?? alert['details'];
-      final String? areaDesc = alert['areaDesc'] ?? alert['area'] ?? alert['location'];
-      final String? severity = alert['severity'] ?? alert['urgency'] ?? 'Medium';
-      
-      // Extract coordinates
-      double? lat, lng;
-      
-      // Try different coordinate field names
-      if (alert.containsKey('geometry')) {
-        final geometry = alert['geometry'];
-        if (geometry is Map && geometry.containsKey('coordinates')) {
-          final coords = geometry['coordinates'];
-          if (coords is List && coords.length >= 2) {
-            lng = coords[0]?.toDouble();
-            lat = coords[1]?.toDouble();
-          }
-        }
-      } else if (alert.containsKey('coordinates')) {
-        final coords = alert['coordinates'];
-        if (coords is List && coords.length >= 2) {
-          lng = coords[0]?.toDouble();
-          lat = coords[1]?.toDouble();
-        }
-      } else if (alert.containsKey('lat') && alert.containsKey('lng')) {
-        lat = alert['lat']?.toDouble();
-        lng = alert['lng']?.toDouble();
-      } else if (alert.containsKey('latitude') && alert.containsKey('longitude')) {
-        lat = alert['latitude']?.toDouble();
-        lng = alert['longitude']?.toDouble();
-      }
-
-      // Use default Bengaluru coordinates if not found
-      lat ??= 12.9716;
-      lng ??= 77.5946;
-
-      // Extract timestamp
-      DateTime timestamp = DateTime.now();
-      if (alert.containsKey('sent')) {
-        try {
-          timestamp = DateTime.parse(alert['sent']);
-        } catch (e) {
-          print('Error parsing timestamp: $e');
-        }
-      } else if (alert.containsKey('effective')) {
-        try {
-          timestamp = DateTime.parse(alert['effective']);
-        } catch (e) {
-          print('Error parsing effective timestamp: $e');
-        }
-      }
-
-      // Determine event type and category
-      String eventType = _categorizeEvent(event ?? 'Alert');
-      String category = eventType;
-
-      // Create Event object
-      return Event(
-        eventId: identifier ?? DateTime.now().millisecondsSinceEpoch.toString(),
-        eventType: eventType,
-        severity: _normalizeSeverity(severity ?? 'Medium'),
-        location: Location(
-          lat: lat,
-          lng: lng,
-          address: areaDesc ?? 'Location not specified',
-        ),
-        mediaURL: '', // NDMA alerts typically don't have media
-        timestamp: timestamp,
-        summary: headline ?? 'NDMA Alert',
-        description: description ?? 'No description available',
-        reportedBy: 'NDMA', // National Disaster Management Authority
-        category: category,
-        impactRadius: _calculateImpactRadius(severity ?? 'Medium'),
-      );
-    } catch (e) {
-      print('Error parsing individual alert: $e');
-      return null;
-    }
+  /// Create a summary for the event
+  static String _createEventSummary(NdmaAlert alert) {
+    final emoji = _getEmoji(alert.disasterType);
+    return '$emoji ${alert.disasterType} Alert - ${alert.areaDescription}';
   }
 
-  /// Categorize event based on event type
-  static String _categorizeEvent(String eventType) {
-    final type = eventType.toLowerCase();
-    
-    if (type.contains('flood') || type.contains('water')) {
-      return 'Flood';
-    } else if (type.contains('fire') || type.contains('wildfire')) {
-      return 'Fire';
-    } else if (type.contains('earthquake') || type.contains('seismic')) {
-      return 'Earthquake';
-    } else if (type.contains('cyclone') || type.contains('hurricane') || type.contains('storm')) {
-      return 'Storm';
-    } else if (type.contains('rain') || type.contains('precipitation')) {
-      return 'Weather';
-    } else if (type.contains('heat') || type.contains('temperature')) {
-      return 'Heat Wave';
-    } else if (type.contains('drought')) {
-      return 'Drought';
-    } else if (type.contains('landslide') || type.contains('avalanche')) {
-      return 'Landslide';
-    } else if (type.contains('tsunami')) {
-      return 'Tsunami';
+  /// Get appropriate emoji for disaster type
+  static String _getEmoji(String disasterType) {
+    final type = disasterType.toLowerCase();
+    if (type.contains('rain') || type.contains('flood')) {
+      return '🌧️';
     } else if (type.contains('thunder') || type.contains('lightning')) {
-      return 'Thunderstorm';
+      return '⛈️';
+    } else if (type.contains('wind') || type.contains('cyclone')) {
+      return '💨';
+    } else if (type.contains('heat') || type.contains('temperature')) {
+      return '🌡️';
+    } else if (type.contains('fire')) {
+      return '🔥';
+    } else if (type.contains('earthquake')) {
+      return '🏚️';
     } else {
-      return 'Emergency';
+      return '⚠️';
     }
   }
 
-  /// Normalize severity levels
-  static String _normalizeSeverity(String severity) {
-    final sev = severity.toLowerCase();
+  /// Categorize disaster type into our event categories
+  static String _categorizeDisasterType(String disasterType) {
+    final type = disasterType.toLowerCase();
     
-    if (sev.contains('extreme') || sev.contains('severe') || sev.contains('critical')) {
-      return 'High';
-    } else if (sev.contains('moderate') || sev.contains('medium')) {
-      return 'Medium';
-    } else if (sev.contains('minor') || sev.contains('low')) {
-      return 'Low';
+    if (type.contains('rain') || type.contains('flood') || type.contains('cyclone') || 
+        type.contains('thunder') || type.contains('wind') || type.contains('storm')) {
+      return 'Weather';
+    } else if (type.contains('fire') || type.contains('accident') || type.contains('emergency')) {
+      return 'Emergency';
+    } else if (type.contains('earthquake') || type.contains('landslide')) {
+      return 'Geological';
+    } else if (type.contains('health') || type.contains('disease')) {
+      return 'Health';
     } else {
-      return 'Medium'; // Default
+      return 'Other';
+    }
+  }
+
+  /// Check if an alert is valid
+  static bool _isValidAlert(NdmaAlert alert) {
+    // Check if alert has required fields
+    if (alert.alertId.isEmpty || alert.disasterType.isEmpty) {
+      return false;
+    }
+    
+    // Check if coordinates are valid
+    if (alert.centroid.lat == 0.0 && alert.centroid.lng == 0.0) {
+      return false;
+    }
+    
+    // Check if it's not expired
+    if (alert.effectiveEndTime.isBefore(DateTime.now())) {
+      return false;
+    }
+    
+    return true;
+  }
+
+  /// Validate alert coordinates for Indian region
+  static void _validateAlertCoordinates(NdmaAlert alert) {
+    final lat = alert.centroid.lat;
+    final lng = alert.centroid.lng;
+    
+    // Check if coordinates are within India's boundaries (rough check)
+    if (lat < 6.0 || lat > 37.0 || lng < 68.0 || lng > 97.0) {
+      print('⚠️ Alert coordinates outside India: lat=$lat, lng=$lng for ${alert.disasterType}');
+    } else {
+      print('✅ Alert coordinates validated for ${alert.disasterType}');
     }
   }
 
@@ -248,84 +268,6 @@ class NdmaService {
     } catch (e) {
       print('NDMA service availability check failed: $e');
       return false;
-    }
-  }
-
-  /// Generate mock alerts for testing when API returns empty results
-  static List<Event> _generateMockAlerts(double latitude, double longitude) {
-    final now = DateTime.now();
-    final random = DateTime.now().millisecondsSinceEpoch;
-    
-    return [
-      Event(
-        eventId: 'mock_flood_$random',
-        eventType: 'Flood',
-        severity: 'High',
-        location: Location(
-          lat: latitude + 0.01,
-          lng: longitude + 0.01,
-          address: 'Near ${_getLocationName(latitude, longitude)}',
-        ),
-        mediaURL: '',
-        timestamp: now.subtract(const Duration(hours: 2)),
-        summary: '🌊 Flood Warning - Heavy Rainfall',
-        description: 'Heavy rainfall has caused flooding in low-lying areas. Avoid waterlogged roads and stay indoors if possible.',
-        reportedBy: 'NDMA (Demo)',
-        category: 'Flood',
-        impactRadius: 8.0,
-      ),
-      Event(
-        eventId: 'mock_weather_$random',
-        eventType: 'Weather',
-        severity: 'Medium',
-        location: Location(
-          lat: latitude - 0.005,
-          lng: longitude + 0.008,
-          address: 'Weather Station ${_getLocationName(latitude, longitude)}',
-        ),
-        mediaURL: '',
-        timestamp: now.subtract(const Duration(minutes: 45)),
-        summary: '⛈️ Thunderstorm Alert',
-        description: 'Thunderstorm with lightning expected in the next 2-3 hours. Take necessary precautions.',
-        reportedBy: 'NDMA (Demo)',
-        category: 'Weather',
-        impactRadius: 5.0,
-      ),
-      Event(
-        eventId: 'mock_traffic_$random',
-        eventType: 'Emergency',
-        severity: 'Low',
-        location: Location(
-          lat: latitude + 0.008,
-          lng: longitude - 0.003,
-          address: 'Highway near ${_getLocationName(latitude, longitude)}',
-        ),
-        mediaURL: '',
-        timestamp: now.subtract(const Duration(minutes: 20)),
-        summary: '🚧 Road Closure - Maintenance Work',
-        description: 'Road maintenance work in progress. Expect delays and use alternate routes.',
-        reportedBy: 'NDMA (Demo)',
-        category: 'Infrastructure',
-        impactRadius: 2.0,
-      ),
-    ];
-  }
-
-  /// Get a simple location name based on coordinates
-  static String _getLocationName(double latitude, double longitude) {
-    // Simple location mapping for common Indian cities
-    if (latitude >= 12.8 && latitude <= 13.1 && longitude >= 77.4 && longitude <= 77.8) {
-      return 'Bangalore';
-    } else if (latitude >= 19.0 && latitude <= 19.3 && longitude >= 72.7 && longitude <= 73.1) {
-      return 'Mumbai';
-    } else if (latitude >= 28.4 && latitude <= 28.8 && longitude >= 77.0 && longitude <= 77.4) {
-      return 'Delhi';
-    } else if (latitude >= 22.4 && latitude <= 22.7 && longitude >= 88.2 && longitude <= 88.5) {
-      return 'Kolkata';
-    } else if (latitude >= 13.0 && latitude <= 13.2 && longitude >= 80.1 && longitude <= 80.4) {
-      return 'Chennai';
-    } else {
-      return 'Your Area';
     }
   }
 }

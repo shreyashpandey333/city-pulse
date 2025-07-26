@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import '../models/event.dart';
+import '../models/ndma_alert.dart';
 import '../models/user.dart';
 import 'notification_service.dart';
 import 'ndma_service.dart';
@@ -8,6 +9,7 @@ import 'location_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/theme_provider.dart';
 import '../providers/user_provider.dart';
+import '../providers/ndma_alerts_provider.dart';
 
 class AlertService {
   static final AlertService _instance = AlertService._internal();
@@ -15,7 +17,7 @@ class AlertService {
   AlertService._internal();
 
   Timer? _alertTimer;
-  final List<Event> _activeAlerts = [];
+  final List<NdmaAlert> _activeAlerts = [];
   ProviderContainer? _providerContainer;
   bool _hasActiveHighSeverityAlerts = false;
   
@@ -79,8 +81,8 @@ class AlertService {
         return;
       }
 
-      // Get user preferences for alert radius (default 5km if not available)
-      double alertRadius = 300.0; // Default radius set to 300 km as per new requirement
+      // Get user preferences for alert radius (default 300km for NDMA)
+      double alertRadius = 300.0; // Default radius set to 300 km as per NDMA requirements
       if (_providerContainer != null) {
         try {
           final userState = _providerContainer!.read(userProvider);
@@ -92,143 +94,99 @@ class AlertService {
         }
       }
 
-      // Fetch alerts from NDMA API
-      final ndmaAlerts = await NdmaService.fetchLocationWiseAlerts(
+      // Fetch alerts from NDMA API using new method
+      final ndmaAlerts = await NdmaService.fetchNdmaAlerts(
         latitude: location.lat,
         longitude: location.lng,
         radiusKm: alertRadius,
       );
-      print('NDMA Alerts Response:');
-      for (final alert in ndmaAlerts) {
-        print(alert);
-      }
 
-      // Process new alerts
-      for (final alert in ndmaAlerts) {
-        // Check if this alert is already active
-        final existingAlert = _activeAlerts.firstWhere(
-          (existing) => existing.eventId == alert.eventId,
-          orElse: () => Event(
-            eventId: '',
-            eventType: '',
-            severity: '',
-            location: Location(lat: 0, lng: 0, address: ''),
-            mediaURL: '',
-            timestamp: DateTime.now(),
-            summary: '',
-            description: '',
-            reportedBy: '',
-            category: '',
-            impactRadius: 0,
-          ),
-        );
-
-        if (existingAlert.eventId.isEmpty) {
-          await _processNewAlert(alert);
+      // Update provider with new alerts
+      if (_providerContainer != null) {
+        try {
+          // Manually update the provider with new data (if needed for real-time updates)
+          // The provider will automatically refresh through its own mechanisms
+          print('Updated NDMA alerts: ${ndmaAlerts.length} alerts found');
+        } catch (e) {
+          print('Error updating NDMA alerts provider: $e');
         }
       }
 
-      // Update theme based on alert presence
+      // Process new alerts for notifications
+      _activeAlerts.clear();
+      for (final alert in ndmaAlerts) {
+        if (alert.isActive) {
+          await _processNewNdmaAlert(alert);
+        }
+      }
+
+      // Update theme based on active alert presence
       _updateThemeForAlerts();
 
-      // Fallback: Generate random alerts for demonstration if no NDMA alerts
-      if (ndmaAlerts.isEmpty) {
-        final random = Random();
-        if (random.nextDouble() < 0.1) { // 10% chance of demo alert
-          final alert = _generateRandomAlert();
-          await _processNewAlert(alert);
-        }
-      }
     } catch (e) {
       print('Error checking for NDMA alerts: $e');
-      // Fallback to random alerts on error
-      final random = Random();
-      if (random.nextDouble() < 0.1) {
-        final alert = _generateRandomAlert();
-        await _processNewAlert(alert);
-      }
     }
   }
 
-  // Generate a random alert for demonstration
-  Event _generateRandomAlert() {
-    final random = Random();
-    final alertTypes = ['Traffic', 'Emergency', 'Weather', 'Infrastructure'];
-    final severities = ['High', 'Medium', 'Low'];
-    final locations = [
-      'MG Road', 'Brigade Road', 'Koramangala', 'Whitefield', 
-      'Electronic City', 'Indiranagar', 'Jayanagar', 'Malleshwaram'
-    ];
 
-    final alertType = alertTypes[random.nextInt(alertTypes.length)];
-    final severity = severities[random.nextInt(severities.length)];
-    final location = locations[random.nextInt(locations.length)];
 
-    String title, description;
-    
-    switch (alertType) {
-      case 'Traffic':
-        title = '🚦 Traffic Alert in $location';
-        description = 'Heavy traffic congestion reported. Consider alternate routes.';
-        break;
-      case 'Emergency':
-        title = '🚨 Emergency Alert';
-        description = 'Emergency situation reported in $location area. Please avoid the area.';
-        break;
-      case 'Weather':
-        title = '🌧️ Weather Alert';
-        description = 'Heavy rainfall expected in $location. Plan your travel accordingly.';
-        break;
-      case 'Infrastructure':
-        title = '🚧 Infrastructure Alert';
-        description = 'Road work in progress at $location. Expect delays.';
-        break;
-      default:
-        title = 'City Alert';
-        description = 'Important city notification for $location area.';
-    }
-
-    return Event(
-      eventId: DateTime.now().millisecondsSinceEpoch.toString(),
-      eventType: alertType,
-      severity: severity,
-      location: Location(
-        lat: 12.9716 + (random.nextDouble() - 0.5) * 0.1,
-        lng: 77.5946 + (random.nextDouble() - 0.5) * 0.1,
-        address: location,
-      ),
-      mediaURL: '', // No media for generated alerts
-      timestamp: DateTime.now(),
-      summary: title,
-      description: description,
-      reportedBy: 'System', // Auto-generated alerts are reported by system
-      category: alertType,
-      impactRadius: 1.0, // Default 1km radius
-    );
-  }
-
-  // Process new alert and send notification if needed
-  Future<void> _processNewAlert(Event alert) async {
+  // Process new NDMA alert and send notification if needed
+  Future<void> _processNewNdmaAlert(NdmaAlert alert) async {
     _activeAlerts.add(alert);
     
-    // Update theme immediately when high severity alert is added
-    if (alert.severity.toLowerCase() == 'high') {
+    // Update theme immediately when severe alert is added
+    if (alert.severityLevel == SeverityLevel.severe) {
       _hasActiveHighSeverityAlerts = true;
       _updateThemeForAlerts();
     }
     
-    // Check if user should receive notification for this category
-    final shouldNotify = await NotificationService.areNotificationsEnabledForCategory(alert.eventType);
+    // Check if user should receive notification for this disaster type
+    final shouldNotify = await NotificationService.areNotificationsEnabledForCategory(alert.disasterType);
     
     if (shouldNotify) {
       await NotificationService.showAlertNotification(
-        title: alert.summary,
-        body: alert.description,
-        alertType: alert.eventType,
+        title: '${_getDisasterEmoji(alert.disasterType)} ${alert.disasterType}',
+        body: alert.getLocalizedWarningMessage(),
+        alertType: alert.disasterType,
         severity: alert.severity,
       );
       
-      print('Alert notification sent: ${alert.summary}');
+      print('NDMA alert notification sent: ${alert.disasterType} in ${alert.areaDescription}');
+    }
+  }
+
+  // Get emoji for disaster type
+  String _getDisasterEmoji(String disasterType) {
+    switch (disasterType.toLowerCase()) {
+      case 'very heavy rain':
+      case 'heavy rain':
+      case 'rainfall':
+      case 'rain':
+        return '🌧️';
+      case 'flood':
+      case 'flooding':
+        return '🌊';
+      case 'thunderstorm':
+      case 'lightning':
+        return '⛈️';
+      case 'cyclone':
+      case 'hurricane':
+      case 'storm':
+        return '🌪️';
+      case 'heat wave':
+      case 'extreme heat':
+        return '🌡️';
+      case 'fire':
+      case 'wildfire':
+      case 'forest fire':
+        return '🔥';
+      case 'earthquake':
+      case 'seismic':
+        return '🏔️';
+      case 'tsunami':
+        return '🌊';
+      default:
+        return '⚠️';
     }
   }
 
@@ -256,16 +214,16 @@ class AlertService {
     );
   }
 
-  // Get active alerts
-  List<Event> getActiveAlerts() {
+  // Get active NDMA alerts
+  List<NdmaAlert> getActiveAlerts() {
     return List.unmodifiable(_activeAlerts);
   }
 
-  // Clear old alerts (older than 24 hours)
-  void clearOldAlerts() {
-    final cutoffTime = DateTime.now().subtract(const Duration(hours: 24));
+  // Clear expired alerts
+  void clearExpiredAlerts() {
+    final now = DateTime.now();
     final removedCount = _activeAlerts.length;
-    _activeAlerts.removeWhere((alert) => alert.timestamp.isBefore(cutoffTime));
+    _activeAlerts.removeWhere((alert) => !alert.isActive);
     
     // Update theme if alerts were removed
     if (removedCount != _activeAlerts.length) {
@@ -278,38 +236,38 @@ class AlertService {
     return await NotificationService.getFCMToken();
   }
 
-  // Get alert statistics
+  // Get NDMA alert statistics
   Map<String, int> getAlertStatistics() {
     final stats = <String, int>{};
     for (final alert in _activeAlerts) {
-      stats[alert.eventType] = (stats[alert.eventType] ?? 0) + 1;
+      stats[alert.disasterType] = (stats[alert.disasterType] ?? 0) + 1;
     }
     return stats;
   }
 
-  // Update theme based on current alerts
+  // Update theme based on current NDMA alerts
   void _updateThemeForAlerts() {
     if (_providerContainer == null) return;
     
     try {
-      final hasHighSeverityAlerts = _activeAlerts.any(
-        (alert) => alert.severity.toLowerCase() == 'high'
+      final hasSevereAlerts = _activeAlerts.any(
+        (alert) => alert.severityLevel == SeverityLevel.severe
       );
       
-      _hasActiveHighSeverityAlerts = hasHighSeverityAlerts;
+      _hasActiveHighSeverityAlerts = hasSevereAlerts;
       
       final themeNotifier = _providerContainer!.read(dynamicThemeProvider.notifier);
       
-      if (hasHighSeverityAlerts) {
+      if (hasSevereAlerts) {
         // Find the most severe alert to determine theme
-        final highSeverityAlert = _activeAlerts.firstWhere(
-          (alert) => alert.severity.toLowerCase() == 'high',
+        final severestAlert = _activeAlerts.firstWhere(
+          (alert) => alert.severityLevel == SeverityLevel.severe,
           orElse: () => _activeAlerts.first,
         );
         
         themeNotifier.updateThemeForAlert(
-          highSeverityAlert.eventType,
-          highSeverityAlert.severity,
+          severestAlert.disasterType,
+          severestAlert.severity,
         );
         
         // Also update to emergency red theme
@@ -319,18 +277,18 @@ class AlertService {
         themeNotifier.setEmergencyTheme(false);
       }
     } catch (e) {
-      print('Error updating theme for alerts: $e');
+      print('Error updating theme for NDMA alerts: $e');
     }
   }
   
   // Get NDMA alerts for a specific location
-  Future<List<Event>> getNdmaAlertsForLocation({
+  Future<List<NdmaAlert>> getNdmaAlertsForLocation({
     required double latitude,
     required double longitude,
     required double radiusKm,
   }) async {
     try {
-      return await NdmaService.fetchLocationWiseAlerts(
+      return await NdmaService.fetchNdmaAlerts(
         latitude: latitude,
         longitude: longitude,
         radiusKm: radiusKm,

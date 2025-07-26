@@ -2,8 +2,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/event.dart';
 import '../services/alert_service.dart';
 import '../services/location_service.dart';
+import '../services/ndma_service.dart';
 
-// Events state provider
+// DEPRECATED: Use ndmaAlertsProvider instead for disaster alerts
+// This provider is kept for backward compatibility only
 final eventsProvider = StateNotifierProvider<EventsNotifier, AsyncValue<List<Event>>>((ref) {
   return EventsNotifier();
 });
@@ -62,16 +64,20 @@ class EventsNotifier extends StateNotifier<AsyncValue<List<Event>>> {
         return;
       }
       
-      // Get events from AlertService (NDMA API)
-      final alertService = AlertService();
-      final events = await alertService.getNdmaAlertsForLocation(
+      // Get NDMA alerts directly from the service
+      final ndmaAlerts = await NdmaService.fetchNdmaAlerts(
         latitude: location.lat,
         longitude: location.lng,
-        radiusKm: 10.0, // Default radius
+        radiusKm: 300.0, // Default NDMA radius
       );
       
+      // Convert NDMA alerts to Event objects for compatibility
+      final events = await NdmaService.convertNdmaAlertsToEvents(ndmaAlerts);
+      
+      print('Loaded ${events.length} events from NDMA API');
       state = AsyncValue.data(events);
     } catch (error, stackTrace) {
+      print('Error loading events: $error');
       state = AsyncValue.error(error, stackTrace);
     }
   }
@@ -109,7 +115,7 @@ class EventFilters {
   EventFilters({
     this.selectedCategories = const [],
     this.selectedSeverities = const [],
-    this.radius = 10.0,
+    this.radius = 300.0, // Changed default to 300km for NDMA
   });
 
   EventFilters copyWith({

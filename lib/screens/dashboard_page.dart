@@ -6,17 +6,24 @@ import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import '../providers/user_provider.dart';
 import '../providers/chat_providers.dart';
-import '../providers/events_provider.dart';
+import '../providers/ndma_alerts_provider.dart';
 import '../models/chat_message.dart';
-import '../models/event.dart';
+import '../models/ndma_alert.dart';
+import '../models/event.dart'; // Import for Location class
 import '../services/location_service.dart';
 import '../themes/app_theme.dart';
+import '../components/sos_button.dart';
 
 class DashboardPage extends ConsumerStatefulWidget {
   const DashboardPage({super.key});
 
   @override
   ConsumerState<DashboardPage> createState() => _DashboardPageState();
+}
+
+enum MapViewMode {
+  alerts,
+  traffic,
 }
 
 class _DashboardPageState extends ConsumerState<DashboardPage>
@@ -31,10 +38,13 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
   bool _isChatExpanded = true;  // Start expanded
   double _minChatHeight = 120;
   double _maxChatHeight = 500;
+  MapViewMode _currentMapMode = MapViewMode.alerts;
   
   Set<Marker> _markers = {};
-  List<Event> _events = [];
+  Set<Circle> _circles = {};
+  List<NdmaAlert> _alerts = [];
   Location? _currentLocation;
+  GoogleMapController? _mapController;
 
   @override
   void initState() {
@@ -107,8 +117,8 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
       // Get current location
       _currentLocation = await LocationService.getCurrentLocation();
       
-      // Load events from events provider (NDMA integration)
-      ref.read(eventsProvider.notifier).loadEvents();
+      // Load NDMA alerts
+      ref.read(ndmaAlertsProvider.notifier).loadAlerts();
       
       setState(() {});
     } catch (e) {
@@ -116,27 +126,37 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
     }
   }
   
-  Future<void> _createMarkers() async {
-    Set<Marker> markers = {};
+  Future<void> _createMarkersAndCircles() async {
+    print('🔄 Creating markers and circles for ${_alerts.length} alerts');
     
-    // Add event markers from _events
-    for (final event in _events) {
-      final marker = Marker(
-        markerId: MarkerId(event.eventId),
-        position: LatLng(event.location.lat, event.location.lng),
-        infoWindow: InfoWindow(
-          title: event.summary,
-          snippet: event.description,
-        ),
-        icon: await _createCustomMarkerIcon(_getMarkerColorByCategory(event.category), _getMarkerIconByCategory(event.category)),
-      );
-      markers.add(marker);
-    }
+    try {
+      // Process markers and circles in parallel for better performance
+      final futures = <Future>[];
+      final markers = <Marker>{};
+      final circles = <Circle>{};
+      
+      // Process alerts in batches to avoid blocking the main thread
+      const batchSize = 5;
+      for (int i = 0; i < _alerts.length; i += batchSize) {
+        final batch = _alerts.skip(i).take(batchSize);
+        
+        for (final alert in batch) {
+          futures.add(_processAlert(alert, markers, circles));
+        }
+        
+        // Wait for current batch to complete before processing next batch
+        await Future.wait(futures);
+        futures.clear();
+        
+        // Yield control to prevent blocking the main thread
+        if (i + batchSize < _alerts.length) {
+          await Future.delayed(const Duration(milliseconds: 10));
+        }
+      }
 
-    // Add current location marker
-    if (_currentLocation != null) {
-      markers.add(
-        Marker(
+      // Add current location marker
+      if (_currentLocation != null) {
+        final locationMarker = Marker(
           markerId: const MarkerId('current_location'),
           position: LatLng(_currentLocation!.lat, _currentLocation!.lng),
           icon: await _createCustomMarkerIcon(Colors.blue, Icons.my_location),
@@ -144,29 +164,165 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
             title: 'Your Location',
             snippet: _currentLocation!.address,
           ),
-        ),
-      );
-    }
-    
-    // Add event markers
-    for (Event event in _events) {
-      Color markerColor = _getMarkerColorByCategory(event.category);
-      IconData markerIcon = _getMarkerIconByCategory(event.category);
+        );
+        markers.add(locationMarker);
+      }
       
-      markers.add(
-        Marker(
-          markerId: MarkerId(event.eventId),
-          position: LatLng(event.location.lat, event.location.lng),
-          icon: await _createCustomMarkerIcon(markerColor, markerIcon),
-          infoWindow: InfoWindow(
-            title: event.eventType,
-            snippet: '${event.severity} - ${event.location.address}',
-          ),
+      print('✅ Final result: ${markers.length} markers, ${circles.length} circles');
+      
+      setState(() {
+        _markers = markers;
+        _circles = circles;
+      });
+    } catch (e) {
+      print('💥 Error creating markers and circles: $e');
+    }
+  }
+
+  Future<void> _processAlert(NdmaAlert alert, Set<Marker> markers, Set<Circle> circles) async {
+    try {
+      final alertColor = _parseColor(alert.displayColor);
+      
+      print('🔍 Processing alert: ${alert.alertId} - ${alert.disasterType}');
+      print('📍 Centroid: ${alert.centroid.lat}, ${alert.centroid.lng}');
+      
+      // Create multiple layered circles for glow effect
+      final glowCircles = _createGlowCircles(alert, alertColor);
+      circles.addAll(glowCircles);
+      print('✅ ${glowCircles.length} glow circles added successfully for ${alert.alertId}');
+      
+      // Create marker at centroid
+      final marker = Marker(
+        markerId: MarkerId(alert.alertId),
+        position: LatLng(alert.centroid.lat, alert.centroid.lng),
+        infoWindow: InfoWindow(
+          title: '${_getDisasterIcon(alert.disasterType)} ${alert.disasterType}',
+          snippet: '${alert.areaDescription} till ${alert.timeRange}',
+        ),
+        icon: await _createCustomMarkerIcon(
+          alertColor, 
+          _getMarkerIconByDisasterType(alert.disasterType)
         ),
       );
+      markers.add(marker);
+      print('✅ Marker created for ${alert.alertId}');
+    } catch (e) {
+      print('💥 Error processing alert ${alert.alertId}: $e');
+    }
+  }
+
+  // Create multiple layered circles for glow effect
+  List<Circle> _createGlowCircles(NdmaAlert alert, Color alertColor) {
+    // Determine base radius based on severity
+    double baseRadius = 1000; // Default radius in meters
+    
+    // Parse severity from alert properties or use color intensity
+    final severityLevel = _getSeverityLevel(alert, alertColor);
+    
+    switch (severityLevel) {
+      case 'high':
+        baseRadius = 2500; // Larger radius for high severity
+        break;
+      case 'medium':
+        baseRadius = 1800; // Medium radius
+        break;
+      case 'low':
+        baseRadius = 1200; // Smaller radius for low severity
+        break;
     }
     
-    _markers = markers;
+    final center = LatLng(alert.centroid.lat, alert.centroid.lng);
+    final circles = <Circle>[];
+    
+    // Create outer glow circle (largest, most transparent)
+    circles.add(Circle(
+      circleId: CircleId('${alert.alertId}_glow_outer'),
+      center: center,
+      radius: baseRadius * 1.3,
+      fillColor: alertColor.withOpacity(0.08), // Very transparent for outer glow
+      strokeColor: alertColor.withOpacity(0.3),
+      strokeWidth: 1,
+    ));
+    
+    // Create middle glow circle
+    circles.add(Circle(
+      circleId: CircleId('${alert.alertId}_glow_middle'),
+      center: center,
+      radius: baseRadius * 1.15,
+      fillColor: alertColor.withOpacity(0.15), // Medium transparency
+      strokeColor: alertColor.withOpacity(0.5),
+      strokeWidth: 2,
+    ));
+    
+    // Create main circle (core)
+    circles.add(Circle(
+      circleId: CircleId('${alert.alertId}_core'),
+      center: center,
+      radius: baseRadius,
+      fillColor: alertColor.withOpacity(0.3), // Core visibility
+      strokeColor: alertColor,
+      strokeWidth: 3,
+    ));
+    
+    return circles;
+  }
+
+  // Determine severity level based on alert properties and color
+  String _getSeverityLevel(NdmaAlert alert, Color alertColor) {
+    // Check if alert has severity in properties
+    if (alert.areaJson.containsKey('properties') && 
+        alert.areaJson['properties'] is Map) {
+      final properties = alert.areaJson['properties'] as Map;
+      if (properties.containsKey('severity')) {
+        final severity = properties['severity'].toString().toLowerCase();
+        if (severity.contains('high') || severity.contains('severe') || severity.contains('extreme')) {
+          return 'high';
+        } else if (severity.contains('medium') || severity.contains('moderate')) {
+          return 'medium';
+        } else if (severity.contains('low') || severity.contains('minor')) {
+          return 'low';
+        }
+      }
+    }
+    
+    // Fallback: determine severity by color intensity
+    final red = alertColor.red;
+    final green = alertColor.green;
+    final blue = alertColor.blue;
+    
+    // High severity: red-ish colors
+    if (red > 200 && green < 100 && blue < 100) {
+      return 'high';
+    }
+    // Medium severity: orange/yellow-ish colors
+    else if (red > 150 && green > 100 && blue < 150) {
+      return 'medium';
+    }
+    // Low severity: green-ish or other colors
+    else {
+      return 'low';
+    }
+  }
+
+
+
+  // Parse color string to Color object
+  Color _parseColor(String colorString) {
+    if (colorString.isEmpty) return Colors.orange;
+    
+    try {
+      String hexColor = colorString;
+      if (hexColor.startsWith('#')) {
+        hexColor = hexColor.substring(1);
+      }
+      if (hexColor.length == 6) {
+        hexColor = 'FF$hexColor'; // Add alpha if not present
+      }
+      return Color(int.parse(hexColor, radix: 16));
+    } catch (e) {
+      print('Error parsing color $colorString: $e');
+      return Colors.orange; // Default color
+    }
   }
   
   Future<BitmapDescriptor> _createCustomMarkerIcon(Color color, IconData icon) async {
@@ -243,56 +399,153 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
     return BitmapDescriptor.hueRed;
   }
   
-  Color _getMarkerColorByCategory(String category) {
-    switch (category.toLowerCase()) {
-      case 'traffic':
-        return Colors.orange;
-      case 'emergency':
-        return Colors.red;
-      case 'weather':
-        return Colors.blue;
-      case 'event':
-        return Colors.green;
-      case 'construction':
-        return Colors.yellow;
+  // Get disaster type icon for markers
+  IconData _getMarkerIconByDisasterType(String disasterType) {
+    switch (disasterType.toLowerCase()) {
+      case 'very heavy rain':
+      case 'heavy rain':
+      case 'rainfall':
+      case 'rain':
+        return Icons.water_drop;
+      case 'flood':
+      case 'flooding':
+        return Icons.flood;
+      case 'thunderstorm':
+      case 'lightning':
+        return Icons.flash_on;
+      case 'cyclone':
+      case 'hurricane':
+      case 'storm':
+        return Icons.cyclone;
+      case 'heat wave':
+      case 'extreme heat':
+        return Icons.wb_sunny;
+      case 'cold wave':
+      case 'extreme cold':
+        return Icons.ac_unit;
+      case 'drought':
+        return Icons.water_damage;
+      case 'fire':
+      case 'wildfire':
+      case 'forest fire':
+        return Icons.local_fire_department;
+      case 'earthquake':
+      case 'seismic':
+        return Icons.landscape;
+      case 'landslide':
+      case 'avalanche':
+        return Icons.terrain;
+      case 'tsunami':
+        return Icons.waves;
+      case 'strong wind':
+      case 'high wind':
+      case 'wind':
+        return Icons.air;
+      case 'hail':
+      case 'hailstorm':
+        return Icons.grain;
+      case 'fog':
+      case 'dense fog':
+        return Icons.cloud;
       default:
-        return Colors.purple;
+        return Icons.warning;
     }
   }
-  
-  IconData _getMarkerIconByCategory(String category) {
-    switch (category.toLowerCase()) {
-      case 'traffic':
-        return Icons.traffic;
-      case 'emergency':
-      case 'fire':
-        return Icons.local_fire_department;
-      case 'weather':
+
+  // Get disaster type emoji icon for display
+  String _getDisasterIcon(String disasterType) {
+    switch (disasterType.toLowerCase()) {
+      case 'very heavy rain':
+      case 'heavy rain':
+      case 'rainfall':
       case 'rain':
+        return '🌧️';
       case 'flood':
-        return Icons.cloud_queue;
-      case 'accident':
-        return Icons.car_crash;
-      case 'event':
-      case 'festival':
-        return Icons.celebration;
-      case 'construction':
-      case 'roadwork':
-        return Icons.construction;
-      case 'police':
-        return Icons.local_police;
-      case 'medical':
-      case 'hospital':
-        return Icons.local_hospital;
-      case 'protest':
-      case 'gathering':
-        return Icons.groups;
-      case 'power':
-      case 'electricity':
-        return Icons.flash_on;
+      case 'flooding':
+        return '🌊';
+      case 'thunderstorm':
+      case 'lightning':
+        return '⛈️';
+      case 'cyclone':
+      case 'hurricane':
+      case 'storm':
+        return '🌪️';
+      case 'heat wave':
+      case 'extreme heat':
+        return '🌡️';
+      case 'cold wave':
+      case 'extreme cold':
+        return '🥶';
+      case 'drought':
+        return '🏜️';
+      case 'fire':
+      case 'wildfire':
+      case 'forest fire':
+        return '🔥';
+      case 'earthquake':
+      case 'seismic':
+        return '🏔️';
+      case 'landslide':
+      case 'avalanche':
+        return '⛰️';
+      case 'tsunami':
+        return '🌊';
+      case 'strong wind':
+      case 'high wind':
+      case 'wind':
+        return '💨';
+      case 'hail':
+      case 'hailstorm':
+        return '🧊';
+      case 'fog':
+      case 'dense fog':
+        return '🌫️';
       default:
-        return Icons.location_on;
+        return '⚠️';
     }
+  }
+
+  // Switch between map modes (alerts vs traffic)
+  void _switchMapMode(MapViewMode mode) {
+    setState(() {
+      _currentMapMode = mode;
+    });
+    
+    print('🗺️ Switched to ${mode == MapViewMode.alerts ? 'Alerts' : 'Traffic'} view');
+  }
+
+  // Build map toggle button
+  Widget _buildMapToggleButton({
+    required IconData icon,
+    required String label,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 18,
+              color: isActive ? AppTheme.primaryPurple : Colors.grey[600],
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                fontWeight: isActive ? FontWeight.w600 : FontWeight.w400,
+                color: isActive ? AppTheme.primaryPurple : Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -364,14 +617,52 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
   }
 
   String _generateAIResponse(String userMessage) {
-    if (userMessage.toLowerCase().contains('traffic')) {
-      return 'I found some traffic updates near your location. There\'s moderate congestion on MG Road and heavy traffic on Outer Ring Road.';
-    } else if (userMessage.toLowerCase().contains('weather')) {
-      return 'The weather in Bengaluru today is partly cloudy with a high of 26°C. There\'s a 30% chance of rain in the evening.';
-    } else if (userMessage.toLowerCase().contains('events')) {
-      return 'Here are some upcoming events in your area: Tech meetup at UB City Mall, Cultural festival at Lalbagh, and a food festival at Brigade Road.';
+    final message = userMessage.toLowerCase();
+    
+    if (message.contains('alert') || message.contains('disaster') || message.contains('emergency')) {
+      final activeAlerts = _alerts.where((alert) => alert.isActive).toList();
+      if (activeAlerts.isNotEmpty) {
+        final severestAlert = activeAlerts.first;
+        return 'I found ${activeAlerts.length} active disaster alert(s) in your area. The most severe is: ${severestAlert.getLocalizedWarningMessage()}';
+      } else {
+        return 'Good news! There are currently no active disaster alerts in your area. Stay safe and keep monitoring for updates.';
+      }
+    } else if (message.contains('weather') || message.contains('rain') || message.contains('storm')) {
+      final weatherAlerts = _alerts.where((alert) => 
+        alert.isActive && (
+          alert.disasterType.toLowerCase().contains('rain') ||
+          alert.disasterType.toLowerCase().contains('storm') ||
+          alert.disasterType.toLowerCase().contains('thunder')
+        )
+      ).toList();
+      
+      if (weatherAlerts.isNotEmpty) {
+        return 'Weather alert: ${weatherAlerts.first.getLocalizedWarningMessage()} Please take necessary precautions.';
+      } else {
+        return 'No active weather alerts in your area currently. Weather conditions appear normal.';
+      }
+    } else if (message.contains('flood') || message.contains('water')) {
+      final floodAlerts = _alerts.where((alert) => 
+        alert.isActive && alert.disasterType.toLowerCase().contains('flood')
+      ).toList();
+      
+      if (floodAlerts.isNotEmpty) {
+        return 'Flood alert: ${floodAlerts.first.getLocalizedWarningMessage()} Avoid waterlogged areas and stay safe.';
+      } else {
+        return 'No flood alerts in your area currently. Water levels are normal.';
+      }
+    } else if (message.contains('fire') || message.contains('wildfire')) {
+      final fireAlerts = _alerts.where((alert) => 
+        alert.isActive && alert.disasterType.toLowerCase().contains('fire')
+      ).toList();
+      
+      if (fireAlerts.isNotEmpty) {
+        return 'Fire alert: ${fireAlerts.first.getLocalizedWarningMessage()} Please evacuate if advised and stay away from affected areas.';
+      } else {
+        return 'No fire alerts in your area currently. Fire risk appears low.';
+      }
     } else {
-      return 'I\'m here to help you with information about Bengaluru! You can ask me about traffic, weather, events, or any city-related queries.';
+      return 'I\'m your disaster alert assistant! Ask me about current alerts, weather conditions, floods, fires, or any disaster-related concerns in your area.';
     }
   }
 
@@ -379,15 +670,15 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
   Widget build(BuildContext context) {
     final userAsync = ref.watch(userProvider);
     final chatMessages = ref.watch(chatMessageProvider);
-    final eventsAsync = ref.watch(eventsProvider);
+    final alertsAsync = ref.watch(ndmaAlertsProvider);
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
     
-    // Update events and markers when events change
-    eventsAsync.whenData((events) {
-      if (_events != events) {
-        _events = events;
-        _createMarkers();
+    // Update alerts, markers and polygons when alerts change
+    alertsAsync.whenData((alerts) {
+      if (_alerts != alerts) {
+        _alerts = alerts;
+        _createMarkersAndCircles();
       }
     });
     
@@ -403,100 +694,106 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
               color: Theme.of(context).brightness == Brightness.dark 
                   ? Colors.grey[900] 
                   : Colors.grey[100],
-              child: GoogleMap(
-                initialCameraPosition: CameraPosition(
-                  target: _currentLocation != null 
-                    ? LatLng(_currentLocation!.lat, _currentLocation!.lng)
-                    : const LatLng(12.9716, 77.5946), // Bengaluru coordinates
-                  zoom: 15.0,
-                ),
-                mapType: MapType.normal,
-                zoomControlsEnabled: true,
-                myLocationEnabled: true,
-                myLocationButtonEnabled: true,
-                compassEnabled: true,
-                onMapCreated: (GoogleMapController controller) {
+              child: Stack(
+                children: [
+                  GoogleMap(
+                    initialCameraPosition: CameraPosition(
+                      target: _currentLocation != null 
+                        ? LatLng(_currentLocation!.lat, _currentLocation!.lng)
+                        : const LatLng(12.9716, 77.5946), // Bengaluru coordinates
+                      zoom: 15.0,
+                    ),
+                    mapType: MapType.normal,
+                    zoomControlsEnabled: true,
+                    myLocationEnabled: true,
+                    myLocationButtonEnabled: true,
+                    compassEnabled: true,
+                    trafficEnabled: _currentMapMode == MapViewMode.traffic,
+                    markers: _currentMapMode == MapViewMode.alerts ? _markers : {},
+                    circles: _currentMapMode == MapViewMode.alerts ? _circles : {},
+                    onMapCreated: (GoogleMapController controller) {
+                      _mapController = controller;
                   // Apply dark mode style if needed
                   if (Theme.of(context).brightness == Brightness.dark) {
                     controller.setMapStyle('''[
-  {
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#212121"
-      }
-    ]
-  },
-  {
-    "elementType": "labels.icon",
-    "stylers": [
-      {
-        "visibility": "off"
-      }
-    ]
-  },
-  {
-    "elementType": "labels.text.fill",
-    "stylers": [
-      {
-        "color": "#757575"
-      }
-    ]
-  },
-  {
-    "elementType": "labels.text.stroke",
-    "stylers": [
-      {
-        "color": "#212121"
-      }
-    ]
-  },
-  {
-    "featureType": "administrative",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#757575"
-      }
-    ]
-  },
-  {
-    "featureType": "road",
-    "elementType": "geometry.fill",
-    "stylers": [
-      {
-        "color": "#2c2c2c"
-      }
-    ]
-  },
-  {
-    "featureType": "road.arterial",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#373737"
-      }
-    ]
-  },
-  {
-    "featureType": "road.highway",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#3c3c3c"
-      }
-    ]
-  },
-  {
-    "featureType": "water",
-    "elementType": "geometry",
-    "stylers": [
-      {
-        "color": "#000000"
-      }
-    ]
-  }
-]''');
+                                {
+                                  "elementType": "geometry",
+                                  "stylers": [
+                                    {
+                                      "color": "#212121"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "elementType": "labels.icon",
+                                  "stylers": [
+                                    {
+                                      "visibility": "off"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "elementType": "labels.text.fill",
+                                  "stylers": [
+                                    {
+                                      "color": "#757575"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "elementType": "labels.text.stroke",
+                                  "stylers": [
+                                    {
+                                      "color": "#212121"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "featureType": "administrative",
+                                  "elementType": "geometry",
+                                  "stylers": [
+                                    {
+                                      "color": "#757575"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "featureType": "road",
+                                  "elementType": "geometry.fill",
+                                  "stylers": [
+                                    {
+                                      "color": "#2c2c2c"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "featureType": "road.arterial",
+                                  "elementType": "geometry",
+                                  "stylers": [
+                                    {
+                                      "color": "#373737"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "featureType": "road.highway",
+                                  "elementType": "geometry",
+                                  "stylers": [
+                                    {
+                                      "color": "#3c3c3c"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "featureType": "water",
+                                  "elementType": "geometry",
+                                  "stylers": [
+                                    {
+                                      "color": "#000000"
+                                    }
+                                  ]
+                                }
+                              ]''');
                   }
                   // Move camera to current location with better zoom if available
                   if (_currentLocation != null) {
@@ -510,10 +807,48 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
                     );
                   }
                 },
-                markers: _markers,
               ),
-            ),
+              
+              // Map view toggle buttons
+              Positioned(
+                top: 60,
+                right: 16,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildMapToggleButton(
+                        icon: Icons.warning_amber,
+                        label: 'Alerts',
+                        isActive: _currentMapMode == MapViewMode.alerts,
+                        onTap: () => _switchMapMode(MapViewMode.alerts),
+                      ),
+                      Container(height: 1, color: Colors.grey[300]),
+                      _buildMapToggleButton(
+                        icon: Icons.traffic,
+                        label: 'Traffic',
+                        isActive: _currentMapMode == MapViewMode.traffic,
+                        onTap: () => _switchMapMode(MapViewMode.traffic),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
+        ),
+      ),
           
           // Collapsible chat interface at bottom
           Positioned(
@@ -544,10 +879,24 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
                     ],
                   ),
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       // Drag handle and header
                       GestureDetector(
                         onTap: _toggleChat,
+                        onPanUpdate: (details) {
+                          // Handle swipe gestures
+                          final dy = details.delta.dy;
+                          if (dy.abs() > 2) { // Threshold to prevent accidental swipes
+                            if (dy < -5 && !_isChatExpanded) {
+                              // Swipe up to expand
+                              _toggleChat();
+                            } else if (dy > 5 && _isChatExpanded) {
+                              // Swipe down to collapse
+                              _toggleChat();
+                            }
+                          }
+                        },
                         child: Container(
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -557,6 +906,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
                             ),
                           ),
                           child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               // Drag handle
                               Container(
@@ -608,7 +958,9 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             child: chatMessages.isEmpty
-                                ? _buildWelcomeMessageArea()
+                                ? SingleChildScrollView(
+                                    child: _buildWelcomeMessageArea(),
+                                  )
                                 : ListView.builder(
                                     controller: _chatScrollController,
                                     itemCount: chatMessages.length,
@@ -658,7 +1010,7 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
                                     color: isDarkMode ? Colors.white : Colors.black,
                                   ),
                                   decoration: InputDecoration(
-                                    hintText: 'Ask about traffic, events, weather...',
+                                    hintText: 'Ask about disaster alerts, weather, floods...',
                                     hintStyle: GoogleFonts.poppins(
                                       color: isDarkMode ? Colors.grey[400] : Colors.grey[500],
                                       fontSize: 14,
@@ -711,6 +1063,22 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
               },
             ),
           ),
+          
+          // SOS button overlay - positioned above chat pane with state preservation
+          AnimatedBuilder(
+            animation: _chatHeightAnimation,
+            builder: (context, child) {
+              final bottomPadding = MediaQuery.of(context).padding.bottom;
+              final chatHeight = _chatHeightAnimation.value + bottomPadding;
+              
+              return Positioned(
+                bottom: chatHeight + 30, // Optimal space above chat pane (30px)
+                right: 16,
+                child: child!,
+              );
+            },
+            child: const SosButton(),
+          ),
         ],
       ),
     );
@@ -762,10 +1130,12 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
                 Text(
                   'Welcome back, $userName!',
                   style: GoogleFonts.poppins(
-                    fontSize: 18,
+                    fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: AppTheme.primaryPurple,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -860,90 +1230,120 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
   Widget _buildWelcomeMessageArea() {
     final userAsync = ref.watch(userProvider);
     
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Container(
-          width: 80,
-          height: 80,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [AppTheme.primaryPurple, AppTheme.primaryBlue],
-            ),
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.primaryPurple.withOpacity(0.3),
-                blurRadius: 15,
-                offset: const Offset(0, 5),
-              ),
-            ],
-          ),
-          child: const Icon(
-            Icons.chat_bubble_outline,
-            color: Colors.white,
-            size: 35,
-          ),
-        ),
-        const SizedBox(height: 24),
-        userAsync.when(
-          data: (user) => Text(
-            'Hello ${user.name}! 👋',
-            style: GoogleFonts.poppins(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: AppTheme.primaryPurple,
-            ),
-          ),
-          loading: () => Text(
-            'Hello! 👋',
-            style: GoogleFonts.poppins(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: AppTheme.primaryPurple,
-            ),
-          ),
-          error: (error, _) => Text(
-            'Hello! 👋',
-            style: GoogleFonts.poppins(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: AppTheme.primaryPurple,
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          'I\'m your City Pulse Assistant',
-          style: GoogleFonts.poppins(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-            color: Colors.grey[700],
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Ask me about traffic conditions, weather updates,\nevents in your area, or any city-related queries.',
-          textAlign: TextAlign.center,
-          style: GoogleFonts.poppins(
-            fontSize: 14,
-            color: Colors.grey[600],
-            height: 1.4,
-          ),
-        ),
-        const SizedBox(height: 32),
-        // Suggestion chips
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isCompact = constraints.maxHeight < 200;
+        
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _buildSuggestionChip('🚦 Traffic updates', () => _sendMessage('traffic updates')),
-            _buildSuggestionChip('🌤️ Weather forecast', () => _sendMessage('weather forecast')),
-            _buildSuggestionChip('🎪 Local events', () => _sendMessage('events near me')),
-            _buildSuggestionChip('🚨 Emergency alerts', () => _sendMessage('emergency alerts')),
+            Container(
+              width: isCompact ? 60 : 80,
+              height: isCompact ? 60 : 80,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [AppTheme.primaryPurple, AppTheme.primaryBlue],
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppTheme.primaryPurple.withOpacity(0.3),
+                    blurRadius: 15,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.chat_bubble_outline,
+                color: Colors.white,
+                size: isCompact ? 25 : 35,
+              ),
+            ),
+            SizedBox(height: isCompact ? 16 : 24),
+            userAsync.when(
+              data: (user) => Text(
+                'Hello ${user.name}! 👋',
+                style: GoogleFonts.poppins(
+                  fontSize: isCompact ? 16 : 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primaryPurple,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              loading: () => Text(
+                'Hello! 👋',
+                style: GoogleFonts.poppins(
+                  fontSize: isCompact ? 16 : 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primaryPurple,
+                ),
+              ),
+              error: (error, _) => Text(
+                'Hello! 👋',
+                style: GoogleFonts.poppins(
+                  fontSize: isCompact ? 16 : 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.primaryPurple,
+                ),
+              ),
+            ),
+            if (!isCompact) ...[
+              const SizedBox(height: 12),
+              Text(
+                'I\'m your City Pulse Assistant',
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Ask me about disaster alerts, weather warnings,\nflood conditions, fire alerts, or any emergency updates.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 32),
+            ] else ...[
+              const SizedBox(height: 8),
+              Text(
+                'Ask about disaster alerts and city updates',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 16),
+            ],
+                          // Suggestion chips
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      _buildSuggestionChip('🚨 Active alerts', () => _sendMessage('show active alerts')),
+                      _buildSuggestionChip('🌧️ Weather alerts', () => _sendMessage('weather alerts')),
+                      if (!isCompact) ...[
+                        _buildSuggestionChip('🌊 Flood warnings', () => _sendMessage('flood alerts')),
+                        _buildSuggestionChip('🔥 Fire alerts', () => _sendMessage('fire alerts')),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
           ],
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -951,7 +1351,8 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        constraints: const BoxConstraints(maxWidth: 140), // Prevent overflow
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [AppTheme.primaryPurple.withOpacity(0.1), AppTheme.primaryBlue.withOpacity(0.1)],
@@ -965,10 +1366,12 @@ class _DashboardPageState extends ConsumerState<DashboardPage>
         child: Text(
           text,
           style: GoogleFonts.poppins(
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: FontWeight.w500,
             color: AppTheme.primaryPurple,
           ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
       ),
     );

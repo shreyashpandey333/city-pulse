@@ -69,7 +69,10 @@ class AlertBanner extends StatelessWidget {
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
+                          fontSize: 11,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -77,6 +80,7 @@ class AlertBanner extends StatelessWidget {
                         style: theme.textTheme.bodyMedium?.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.w600,
+                          fontSize: 13,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
@@ -86,6 +90,7 @@ class AlertBanner extends StatelessWidget {
                         event.location.address,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: Colors.white.withOpacity(0.8),
+                          fontSize: 11,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

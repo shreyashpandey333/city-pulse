@@ -7,6 +7,7 @@ import '../providers/user_provider.dart';
 import '../providers/chat_providers.dart';
 import '../models/chat_message.dart';
 import '../themes/app_theme.dart';
+import '../components/sos_button.dart';
 
 class NewDashboardScreen extends ConsumerStatefulWidget {
   const NewDashboardScreen({super.key});
@@ -198,8 +199,9 @@ class _NewDashboardScreenState extends ConsumerState<NewDashboardScreen>
             child: AnimatedBuilder(
               animation: _chatHeightAnimation,
               builder: (context, child) {
+                final bottomPadding = MediaQuery.of(context).padding.bottom;
                 return Container(
-                  height: _chatHeightAnimation.value,
+                  height: _chatHeightAnimation.value + bottomPadding,
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(_chatOpacityAnimation.value),
                     borderRadius: const BorderRadius.vertical(
@@ -219,6 +221,19 @@ class _NewDashboardScreenState extends ConsumerState<NewDashboardScreen>
                       // Drag handle and header
                       GestureDetector(
                         onTap: _toggleChat,
+                        onPanUpdate: (details) {
+                          // Handle swipe gestures
+                          final dy = details.delta.dy;
+                          if (dy.abs() > 2) { // Threshold to prevent accidental swipes
+                            if (dy < -5 && !_isChatExpanded) {
+                              // Swipe up to expand
+                              _toggleChat();
+                            } else if (dy > 5 && _isChatExpanded) {
+                              // Swipe down to collapse
+                              _toggleChat();
+                            }
+                          }
+                        },
                         child: Container(
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -372,6 +387,22 @@ class _NewDashboardScreenState extends ConsumerState<NewDashboardScreen>
               },
             ),
           ),
+          
+          // SOS button overlay - positioned above chat pane with state preservation
+          AnimatedBuilder(
+            animation: _chatHeightAnimation,
+            builder: (context, child) {
+              final bottomPadding = MediaQuery.of(context).padding.bottom;
+              final chatHeight = _chatHeightAnimation.value + bottomPadding;
+              
+              return Positioned(
+                bottom: chatHeight + 30, // Optimal space above chat pane (30px)
+                right: 16,
+                child: child!,
+              );
+            },
+            child: const SosButton(),
+          ),
         ],
       ),
     );
@@ -423,10 +454,12 @@ class _NewDashboardScreenState extends ConsumerState<NewDashboardScreen>
                 Text(
                   'Welcome back, $userName!',
                   style: GoogleFonts.poppins(
-                    fontSize: 18,
+                    fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: AppTheme.primaryPurple,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 4),
                 Text(

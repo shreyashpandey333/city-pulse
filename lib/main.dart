@@ -9,6 +9,7 @@ import 'themes/app_theme.dart';
 import 'providers/user_provider.dart';
 import 'providers/theme_provider.dart';
 import 'services/alert_service.dart';
+import 'services/background_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +20,9 @@ void main() async {
   
   // Initialize alert service with provider container
   await AlertService().initialize(providerContainer: container);
+  
+  // Initialize background service for notifications
+  await BackgroundService.initialize();
   
   runApp(ProviderScope(
     parent: container,

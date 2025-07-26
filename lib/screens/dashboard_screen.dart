@@ -349,10 +349,12 @@ class UserGreetingCard extends StatelessWidget {
                   Text(
                     'Hi, $userName!',
                     style: GoogleFonts.poppins(
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: AppTheme.primaryPurple,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   Text(
                     'What\'s happening in your area?',

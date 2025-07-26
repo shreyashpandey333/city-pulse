@@ -13,15 +13,16 @@ class LoginPage extends StatelessWidget {
       final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
       if (googleUser == null) return;
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
 
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
-      final UserCredential userCredential =
-          await FirebaseAuth.instance.signInWithCredential(credential);
+      final UserCredential userCredential = await FirebaseAuth.instance
+          .signInWithCredential(credential);
       final user = userCredential.user;
 
       if (user != null) {
@@ -37,9 +38,9 @@ class LoginPage extends StatelessWidget {
       }
     } catch (e) {
       print('Google Sign-In error: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Google Sign-In failed')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Google Sign-In failed')));
     }
   }
 
@@ -87,7 +88,7 @@ class LoginPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 40),
-                
+
                 // Welcome Text
                 Text(
                   'Welcome to',
@@ -99,7 +100,7 @@ class LoginPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Bengaluru City Pulse',
+                  'Namma Nagara',
                   style: GoogleFonts.poppins(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
@@ -118,7 +119,7 @@ class LoginPage extends StatelessWidget {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 60),
-                
+
                 // Google Sign In Button
                 Container(
                   width: double.infinity,
@@ -195,7 +196,7 @@ class LoginPage extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 40),
-                
+
                 // Terms and Privacy
                 Text(
                   'By continuing, you agree to our Terms of Service\nand Privacy Policy',
