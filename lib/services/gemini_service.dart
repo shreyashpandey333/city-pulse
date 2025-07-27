@@ -1,114 +1,233 @@
+import 'dart:io';
+import 'dart:convert';
+import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-// TODO: Replace with actual Gemini API implementation
-final geminiServiceProvider = Provider((ref) => GeminiService());
-
 class GeminiService {
-  // Mock responses for now - TODO: Integrate real Gemini API
-  Future<String> getResponse(String userMessage) async {
-    await Future.delayed(const Duration(milliseconds: 1500));
-    
-    final query = userMessage.toLowerCase();
-    
-    // Mock AI responses based on keywords
-    if (query.contains('traffic') || query.contains('road')) {
-      return _getTrafficResponse();
-    } else if (query.contains('weather') || query.contains('rain') || query.contains('storm')) {
-      return _getWeatherResponse();
-    } else if (query.contains('events') || query.contains('happening')) {
-      return _getEventsResponse();
-    } else if (query.contains('fire') || query.contains('emergency')) {
-      return _getEmergencyResponse();
-    } else if (query.contains('power') || query.contains('electricity')) {
-      return _getPowerResponse();
-    } else if (query.contains('water') || query.contains('supply')) {
-      return _getWaterResponse();
-    } else {
-      return _getGeneralResponse();
+  static const String _apiKey = 'AIzaSyCL75p9wAFmbyrDPwJZLoKER76K9xWi8kM'; // Replace with your actual API key
+  late final GenerativeModel _model;
+
+  GeminiService() {
+    _model = GenerativeModel(
+      model: 'gemini-1.5-flash',
+      apiKey: _apiKey,
+    );
+  }
+
+  Future<Map<String, dynamic>> analyzeImageWithGemini(String imagePath) async {
+    try {
+      final imageFile = File(imagePath);
+      final imageBytes = await imageFile.readAsBytes();
+
+      // Create a more specific and detailed prompt for city event detection
+      final prompt = '''
+Analyze this image and determine what type of city event or incident it shows. You are helping a citizen reporting app classify events accurately.
+
+Please identify the most likely category from these options:
+- Traffic (cars, vehicles, traffic jams, accidents, road conditions)
+- Emergency (fires, accidents, medical emergencies, police activity)
+- Weather (flooding, storms, heavy rain, snow, extreme weather conditions)
+- Infrastructure (road damage, construction, broken utilities, building issues)
+- Utilities (power outages, water issues, gas leaks, telecommunication problems)
+- Others
+
+Look for these specific indicators:
+- Traffic: Multiple vehicles, traffic congestion, road blockages, vehicle accidents
+- Emergency: Fire, smoke, emergency vehicles, accident scenes, police/ambulance activity
+- Weather: Flooded areas, storm damage, heavy precipitation, weather-related damage
+- Infrastructure: Damaged roads, construction sites, broken infrastructure, maintenance issues
+- Utilities: Downed power lines, water main breaks, utility repair work
+
+Provide your response in this exact JSON format:
+{
+  "category": "one of the 5 categories above",
+  "confidence": confidence_score_between_0_and_1,
+  "description": "detailed description of what you see and why you classified it this way",
+  "title": "short descriptive title for this event (3-8 words)"
+}
+
+Be specific about what you observe in the image. If you see water on roads or flooding, categorize as "Weather". If you see multiple cars or traffic, categorize as "Traffic". If you see emergency vehicles or incidents, categorize as "Emergency".
+''';
+
+      final content = [
+        Content.multi([
+          TextPart(prompt),
+          DataPart('image/jpeg', imageBytes),
+        ])
+      ];
+
+      final response = await _model.generateContent(content);
+      final responseText = response.text;
+
+      if (responseText == null || responseText.isEmpty) {
+        throw Exception('Empty response from Gemini API');
+      }
+
+      print('🤖 Gemini Response: $responseText');
+
+      // Try to extract JSON from the response
+      Map<String, dynamic> analysisResult = _parseGeminiResponse(responseText);
+      
+      // Validate and ensure required fields exist
+      analysisResult = _validateAndCleanResponse(analysisResult);
+      
+      return analysisResult;
+
+    } catch (e) {
+      print('❌ Error in Gemini analysis: $e');
+      
+      // Return a fallback response
+      return {
+        'category': 'Infrastructure',
+        'confidence': 0.5,
+        'description': 'Unable to analyze image automatically. Please select the appropriate category manually.',
+        'title': 'Event Detected'
+      };
     }
   }
 
-  String _getTrafficResponse() {
-    final responses = [
-      "🚦 Current traffic update:\n• Heavy congestion on MG Road (15-20 min delay)\n• Outer Ring Road is experiencing moderate traffic\n• Alternative: Use Airport Road for faster travel",
-      "🛣️ Traffic Status:\n• Koramangala to Indiranagar: 25 mins\n• Whitefield Main Road: Construction work causing delays\n• Tip: Avoid Brigade Road area between 5-7 PM",
-      "🚗 Live Traffic Alert:\n• Electronic City Flyover: Smooth\n• Hebbal Junction: Heavy traffic reported\n• Suggested route: Use service roads for quicker transit",
-    ];
-    return responses[DateTime.now().second % responses.length];
+  Map<String, dynamic> _parseGeminiResponse(String responseText) {
+    try {
+      // Try to find JSON in the response
+      final jsonStart = responseText.indexOf('{');
+      final jsonEnd = responseText.lastIndexOf('}') + 1;
+      
+      if (jsonStart != -1 && jsonEnd > jsonStart) {
+        final jsonString = responseText.substring(jsonStart, jsonEnd);
+        return json.decode(jsonString);
+      }
+      
+      // If no JSON found, try to parse the response manually
+      return _manualParseResponse(responseText);
+      
+    } catch (e) {
+      print('❌ Error parsing Gemini response: $e');
+      return _manualParseResponse(responseText);
+    }
   }
 
-  String _getWeatherResponse() {
-    final responses = [
-      "🌤️ Today's Weather:\n• Temperature: 26°C\n• Partly cloudy with 30% chance of rain\n• Evening thunderstorms possible\n• Carry an umbrella just in case!",
-      "🌧️ Weather Update:\n• Light rain expected in 2 hours\n• Temperature dropping to 24°C\n• High humidity levels\n• Perfect weather for indoor activities",
-      "⛈️ Storm Alert:\n• Thunderstorm warning active\n• Heavy rain expected between 6-8 PM\n• Stay indoors if possible\n• Monitor BBMP updates for waterlogging",
-    ];
-    return responses[DateTime.now().second % responses.length];
-  }
+  Map<String, dynamic> _manualParseResponse(String responseText) {
+    // Fallback manual parsing if JSON parsing fails
+    String category = 'Infrastructure';
+    double confidence = 0.5;
+    String description = responseText.length > 200 
+        ? responseText.substring(0, 200) + '...' 
+        : responseText;
+    String title = 'Event Detected';
 
-  String _getEventsResponse() {
-    final responses = [
-      "🎉 Nearby Events:\n• Tech Meetup at UB City Mall (6 PM)\n• Cultural Festival at Lalbagh (All day)\n• Food Festival on Brigade Road (Weekend)\n• Art Exhibition at National Gallery",
-      "📅 This Weekend:\n• Bangalore Comic Con at BIEC\n• Sunday Market at Russell Market\n• Classical Concert at Chowdiah Hall\n• Cycling event at Cubbon Park",
-      "🎪 Local Happenings:\n• Street Food Festival (Indiranagar)\n• Open Mic Night at Toit (8 PM)\n• Photography Walk (Cubbon Park)\n• Book Reading at Blossoms",
-    ];
-    return responses[DateTime.now().second % responses.length];
-  }
-
-  String _getEmergencyResponse() {
-    final responses = [
-      "🚨 Emergency Services:\n• Fire: 101\n• Police: 100\n• Ambulance: 108\n• If you're reporting an incident, please share your exact location for faster response.",
-      "🔥 Fire Safety Alert:\n• Fire reported in Indiranagar area\n• Fire department on site\n• Avoid the area if possible\n• Always have emergency contacts handy",
-      "🆘 Emergency Protocol:\n• Stay calm and assess the situation\n• Call appropriate emergency number\n• Share precise location details\n• Follow local authority instructions",
-    ];
-    return responses[DateTime.now().second % responses.length];
-  }
-
-  String _getPowerResponse() {
-    final responses = [
-      "⚡ Power Status:\n• HSR Layout: Scheduled maintenance (2-5 PM)\n• Koramangala: Normal supply\n• For outage reports, contact BESCOM: 1912\n• Estimated restoration: 3 hours",
-      "🔌 Electricity Update:\n• Planned outage in Whitefield today\n• Backup power recommended\n• BESCOM helpline: 1912\n• Mobile app available for real-time updates",
-      "💡 Power Alert:\n• Unexpected outage in BTM Layout\n• Technical team dispatched\n• Expected restoration: Within 2 hours\n• Report issues through BESCOM portal",
-    ];
-    return responses[DateTime.now().second % responses.length];
-  }
-
-  String _getWaterResponse() {
-    final responses = [
-      "💧 Water Supply:\n• Regular supply in most areas\n• Tanker service available in HSR Layout\n• BWSSB helpline: 1916\n• Conserve water during peak summer",
-      "🚰 Water Status:\n• Low pressure in Indiranagar\n• Normal supply expected by evening\n• Store water during morning hours\n• Report leakages to BWSSB immediately",
-      "💦 Water Advisory:\n• Boil water before consumption\n• Quality testing in progress\n• Use water purifiers as precaution\n• Contact BWSSB for any concerns",
-    ];
-    return responses[DateTime.now().second % responses.length];
-  }
-
-  String _getGeneralResponse() {
-    final responses = [
-      "🏙️ Hey there! I'm your Bengaluru City Assistant. I can help you with:\n• Traffic updates and routes\n• Weather forecasts\n• Local events and activities\n• Emergency services info\n• City service updates",
-      "✨ How can I help you today?\n• Ask about traffic conditions\n• Get weather updates\n• Find local events\n• Emergency contact info\n• Report city issues",
-      "🚀 I'm here to make your Bengaluru experience better! Try asking me:\n• 'Traffic to Airport?'\n• 'Weather today?'\n• 'Events this weekend?'\n• 'Emergency numbers?'",
-    ];
-    return responses[DateTime.now().second % responses.length];
-  }
-
-  // TODO: Implement actual Gemini Vision API for image analysis
-  Future<Map<String, dynamic>> analyzeImageWithGemini(String imagePath) async {
-    await Future.delayed(const Duration(seconds: 2));
+    // Simple keyword-based category detection as fallback
+    final lowerResponse = responseText.toLowerCase();
     
-    // Mock response - replace with actual Gemini Vision API call
-    final categories = ['Traffic Jam', 'Flood', 'Road Closure', 'Power Outage', 'Fire'];
-    final randomCategory = categories[DateTime.now().millisecond % categories.length];
-    
+    if (lowerResponse.contains('traffic') || 
+        lowerResponse.contains('car') || 
+        lowerResponse.contains('vehicle') ||
+        lowerResponse.contains('road') ||
+        lowerResponse.contains('congestion')) {
+      category = 'Traffic';
+      title = 'Traffic Issue Detected';
+    } else if (lowerResponse.contains('flood') || 
+               lowerResponse.contains('water') || 
+               lowerResponse.contains('rain') ||
+               lowerResponse.contains('storm') ||
+               lowerResponse.contains('weather')) {
+      category = 'Weather';
+      title = 'Weather Event Detected';
+    } else if (lowerResponse.contains('fire') || 
+               lowerResponse.contains('emergency') || 
+               lowerResponse.contains('accident') ||
+               lowerResponse.contains('police') ||
+               lowerResponse.contains('ambulance')) {
+      category = 'Emergency';
+      title = 'Emergency Detected';
+    } else if (lowerResponse.contains('power') || 
+               lowerResponse.contains('utility') || 
+               lowerResponse.contains('electric') ||
+               lowerResponse.contains('water') ||
+               lowerResponse.contains('gas')) {
+      category = 'Utilities';
+      title = 'Utility Issue Detected';
+    }
+
     return {
-      'category': randomCategory,
-      'confidence': 0.85 + (DateTime.now().millisecond % 15) / 100,
-      'description': 'AI-detected $randomCategory in the uploaded image',
-      'location_context': 'Bengaluru city area',
-      'suggestions': [
-        'Report this incident to authorities',
-        'Share with nearby community',
-        'Monitor for updates',
-      ],
+      'category': category,
+      'confidence': confidence,
+      'description': description,
+      'title': title
     };
   }
+
+  Map<String, dynamic> _validateAndCleanResponse(Map<String, dynamic> response) {
+    final validCategories = ['Traffic', 'Emergency', 'Weather', 'Infrastructure', 'Utilities'];
+    
+    // Ensure category is valid
+    if (!validCategories.contains(response['category'])) {
+      response['category'] = 'Infrastructure';
+    }
+    
+    // Ensure confidence is a valid number between 0 and 1
+    if (response['confidence'] is! num || 
+        response['confidence'] < 0 || 
+        response['confidence'] > 1) {
+      response['confidence'] = 0.5;
+    }
+    
+    // Ensure description exists and is reasonable length
+    if (response['description'] == null || response['description'].toString().isEmpty) {
+      response['description'] = 'Event detected in the uploaded image.';
+    } else if (response['description'].toString().length > 300) {
+      response['description'] = response['description'].toString().substring(0, 300) + '...';
+    }
+    
+    // Ensure title exists and is reasonable length
+    if (response['title'] == null || response['title'].toString().isEmpty) {
+      response['title'] = '${response['category']} Event';
+    } else if (response['title'].toString().length > 50) {
+      response['title'] = response['title'].toString().substring(0, 50) + '...';
+    }
+    
+    return response;
+  }
+
+  // Additional method for getting severity suggestions based on image analysis
+  Future<String> suggestSeverity(String imagePath, String category) async {
+    try {
+      final imageFile = File(imagePath);
+      final imageBytes = await imageFile.readAsBytes();
+
+      final severityPrompt = '''
+Based on this image showing a $category event, suggest the severity level:
+- Low: Minor issues, minimal impact
+- Medium: Moderate issues, some impact on daily life  
+- High: Serious issues, significant impact or danger
+
+Respond with just one word: Low, Medium, or High
+''';
+
+      final content = [
+        Content.multi([
+          TextPart(severityPrompt),
+          DataPart('image/jpeg', imageBytes),
+        ])
+      ];
+
+      final response = await _model.generateContent(content);
+      final severityText = response.text?.trim() ?? 'Medium';
+      
+      // Validate severity response
+      if (['Low', 'Medium', 'High'].contains(severityText)) {
+        return severityText;
+      }
+      
+      return 'Medium'; // Default fallback
+      
+    } catch (e) {
+      print('❌ Error getting severity suggestion: $e');
+      return 'Medium';
+    }
+  }
 }
+
+// Provider for Gemini Service
+final geminiServiceProvider = Provider<GeminiService>((ref) {
+  return GeminiService();
+});

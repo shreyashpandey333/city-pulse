@@ -3,9 +3,74 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../providers/ndma_alerts_provider.dart';
 import '../components/alert_banner.dart';
+import '../services/notification_service.dart';
 
 class AlertsScreen extends ConsumerWidget {
   const AlertsScreen({super.key});
+
+  // Send notifications for currently displayed alerts
+  void _testNotificationsForAlerts(BuildContext context, List<dynamic> alerts) async {
+    // Show loading indicator
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+            ),
+            const SizedBox(width: 16),
+            Text("Sending notifications for ${alerts.length} alerts..."),
+          ],
+        ),
+        duration: const Duration(seconds: 3),
+        backgroundColor: Colors.orange,
+      ),
+    );
+
+    try {
+      int sentCount = 0;
+      
+      // Send notification for each alert displayed
+      for (int i = 0; i < alerts.length; i++) {
+        final alert = alerts[i];
+        final timestamp = DateTime.now();
+        final timeStr = '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}';
+        
+        await NotificationService.showAlertNotification(
+          title: '🚨 ${alert.disasterType} Alert ${i + 1}',
+          body: '${alert.getLocalizedWarningMessage()}\nArea: ${alert.areaDescription}\nSeverity: ${alert.severity}\n\n⏰ Updated: $timeStr',
+          alertType: alert.disasterType,
+          severity: alert.severity,
+        );
+        
+        sentCount++;
+        // Small delay to ensure notifications don't overlap
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Sent $sentCount notifications! Check your notification panel.'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Failed to send notifications: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -14,6 +79,16 @@ class AlertsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Alerts'),
+      ),
+      floatingActionButton: alertsAsync.when(
+        data: (alerts) => alerts.isNotEmpty ? FloatingActionButton.extended(
+          onPressed: () => _testNotificationsForAlerts(context, alerts),
+          icon: const Icon(Icons.notification_important),
+          label: const Text('Send Notifications'),
+          backgroundColor: Colors.orange,
+        ) : null,
+        loading: () => null,
+        error: (_, __) => null,
       ),
       body: alertsAsync.when(
         data: (alerts) => RefreshIndicator(

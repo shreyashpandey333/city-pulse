@@ -39,7 +39,7 @@ class AlertService {
 
   // Start monitoring for alerts
   void _startAlertMonitoring() {
-    _alertTimer = Timer.periodic(const Duration(minutes: 5), (timer) {
+    _alertTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
       _checkForNewAlerts();
     });
   }
@@ -47,6 +47,13 @@ class AlertService {
   // Stop alert monitoring
   void stopAlertMonitoring() {
     _alertTimer?.cancel();
+  }
+
+  // Manual trigger for checking (public method)
+  Future<void> checkNow() async {
+    print('📱 Manual trigger: Starting foreground alert check...');
+    await _checkForNewAlerts();
+    print('📱 Manual trigger: Foreground alert check completed');
   }
 
   // Subscribe user to alert categories based on preferences
@@ -112,13 +119,20 @@ class AlertService {
         }
       }
 
-      // Process new alerts for notifications
+      // Process new alerts for notifications with detailed logging
       _activeAlerts.clear();
-      for (final alert in ndmaAlerts) {
-        if (alert.isActive) {
-          await _processNewNdmaAlert(alert);
-        }
+      print('🔄 Foreground: Processing ${ndmaAlerts.length} total alerts for notifications');
+      
+      for (int i = 0; i < ndmaAlerts.length; i++) {
+        final alert = ndmaAlerts[i];
+        print('   Alert ${i + 1}: ${alert.disasterType} - ${alert.severity} - Active: ${alert.isActive} - Area: ${alert.areaDescription}');
+        
+        // Process ALL alerts (not just active ones) for foreground notifications
+        print('✅ Processing alert: ${alert.disasterType} (Active: ${alert.isActive})');
+        await _processNewNdmaAlert(alert);
       }
+      
+      print('🔄 Foreground: Processed ${_activeAlerts.length} active alerts');
 
       // Update theme based on active alert presence
       _updateThemeForAlerts();
@@ -143,15 +157,25 @@ class AlertService {
     // Check if user should receive notification for this disaster type
     final shouldNotify = await NotificationService.areNotificationsEnabledForCategory(alert.disasterType);
     
+    print('🔔 Foreground: Should notify for ${alert.disasterType}? $shouldNotify');
+    
     if (shouldNotify) {
+      // Add timestamp to ensure duplicate notifications are shown
+      final timestamp = DateTime.now();
+      final timeStr = '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}';
+      
+      print('📤 Foreground: Sending notification for ${alert.disasterType}');
+      
       await NotificationService.showAlertNotification(
-        title: '${_getDisasterEmoji(alert.disasterType)} ${alert.disasterType}',
-        body: alert.getLocalizedWarningMessage(),
+        title: '🚨 ${_getDisasterEmoji(alert.disasterType)} ${alert.disasterType} Alert',
+        body: '${alert.getLocalizedWarningMessage()}\nArea: ${alert.areaDescription}\n\n⏰ Updated: $timeStr',
         alertType: alert.disasterType,
         severity: alert.severity,
       );
       
-      print('NDMA alert notification sent: ${alert.disasterType} in ${alert.areaDescription}');
+      print('✅ Foreground: Notification sent for ${alert.disasterType} in ${alert.areaDescription} at $timeStr');
+    } else {
+      print('❌ Foreground: Notification blocked for ${alert.disasterType}');
     }
   }
 

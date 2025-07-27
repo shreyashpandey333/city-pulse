@@ -140,7 +140,7 @@ class ChatPane extends ConsumerWidget {
               padding: EdgeInsets.only(
                 left: screenWidth < 600 ? 12 : 16,
                 right: screenWidth < 600 ? 12 : 16,
-                bottom: 8 + bottomPadding,
+                bottom: 8 ,
                 top: 8,
               ),
               child: Container(

@@ -4,6 +4,7 @@ import '../providers/user_provider.dart';
 import '../providers/theme_provider.dart';
 import '../themes/app_theme.dart';
 import '../services/alert_service.dart';
+import '../services/background_service.dart';
 import '../screens/user_reports_screen.dart';
 import '../screens/leaderboard_screen.dart';
 
@@ -553,6 +554,130 @@ class SettingsScreen extends ConsumerWidget {
               subtitle: Text('${user.preferences.categories.length} categories selected'),
               trailing: const Icon(Icons.arrow_forward_ios),
               onTap: () => _showCategoriesDialog(context, ref, user),
+            ),
+            
+            const Divider(),
+            
+            // Test Background Service Button
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4.0),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    // Show loading indicator
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Row(
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            SizedBox(width: 16),
+            Text("Checking background service..."),
+                          ],
+                        ),
+                        duration: Duration(seconds: 3),
+                      ),
+                    );
+                    
+                    try {
+                      // Use the test function that shows ALL alerts, not just severe ones
+                      await BackgroundService.testAlertsWithNotifications();
+                      
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('✅ Background service check completed! Check notifications.'),
+                            backgroundColor: Colors.green,
+                            duration: Duration(seconds: 4),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('❌ Background service check failed: ${e.toString()}'),
+                            backgroundColor: Colors.red,
+                            duration: const Duration(seconds: 4),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.cloud_sync),
+                  label: const Text('Check Background Service'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryPurple,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ),
+            
+            // Test Foreground Service Button
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4.0),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    // Show loading indicator
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Row(
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            SizedBox(width: 16),
+            Text("Checking foreground service..."),
+                          ],
+                        ),
+                        duration: Duration(seconds: 3),
+                      ),
+                    );
+                    
+                    try {
+                      // Test the foreground alert service
+                      await AlertService().checkNow();
+                      
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('✅ Foreground service check completed! Check console logs and notifications.'),
+                            backgroundColor: Colors.blue,
+                            duration: Duration(seconds: 4),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('❌ Foreground service check failed: ${e.toString()}'),
+                            backgroundColor: Colors.red,
+                            duration: const Duration(seconds: 4),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.phone_android),
+                  label: const Text('Check Foreground Service'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
             ),
           ],
         ),

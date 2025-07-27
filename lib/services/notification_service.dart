@@ -171,13 +171,18 @@ class NotificationService {
       iOS: iosDetails,
     );
 
+    // Generate unique ID within 32-bit range to ensure duplicate notifications are shown
+    final uniqueId = (DateTime.now().millisecondsSinceEpoch % 2000000000) + (title.hashCode % 1000);
+    
     await _localNotifications.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      uniqueId,
       title,
       body,
       notificationDetails,
-      payload: '$alertType|$severity',
+      payload: '$alertType|$severity|${DateTime.now().millisecondsSinceEpoch}',
     );
+    
+    print('📱 Notification sent: ID=$uniqueId, Title=$title');
   }
 
   // Check if notifications are enabled for a category
